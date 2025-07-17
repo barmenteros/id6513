@@ -19,7 +19,7 @@ private:
     double m_totalClosedVolume;
     bool m_resetConditionMet;
     datetime m_systemStartTime;
-    double m_drawdownAtMaxMartingale; // NEW: For drawdown stop loss
+    double m_drawdownAtMaxMartingale; // For drawdown stop loss
 
 public:
     CRiskManager() : m_totalClosedProfits(0), m_maxDrawdown(0),
@@ -28,16 +28,13 @@ public:
         m_drawdownAtMaxMartingale(0) {}
 
     // Core risk management methods
-    bool CheckRestartCondition();
     bool ShouldRestartSystem();
     void UpdateProfitLoss();
     bool CheckCombinedPnLResetCondition();
     bool CheckDrawdownStopLoss(); // NEW: Drawdown stop loss check
-    void TrackClosedTrade(bool isPrimary, double closedVolume, double realizedProfit);
     double CalculatePrimaryDrawdown();
     double CalculateCombinedProfit();
     bool ExecuteSystemReset();
-    double GetCurrentSessionRealizedProfit(bool isPrimary);
     void InitializeSystemStartTime();
     void ResetCounters();
     void SetDrawdownAtMaxMartingale(double drawdown); // NEW: Set drawdown reference
@@ -61,26 +58,35 @@ public:
     }
 };
 
-// Method stubs - will be implemented in subsequent tasks
-bool CRiskManager::CheckRestartCondition()
+//+------------------------------------------------------------------+
+//| Update profit/loss tracking with minimal logging               |
+//+------------------------------------------------------------------+
+void CRiskManager::UpdateProfitLoss()
 {
-    return false;
+    // This method is called every second via timer
+    // Only log significant changes or periodically for status
+
+    static datetime lastPnLUpdateLog = 0;
+    static double lastLoggedProfit = 0.0;
+    datetime currentTime = TimeCurrent();
+
+    double currentCombinedProfit = CalculateCombinedProfit();
+    double profitChange = MathAbs(currentCombinedProfit - lastLoggedProfit);
+
+    // Only log if significant change (>$10) or every 5 minutes for status
+    if(DebugMode && (profitChange > 10.0 || (currentTime - lastPnLUpdateLog >= 300))) {
+        LOG_DEBUG("=== P&L UPDATE ===");
+        LOG_DEBUG("Combined P&L: $" + DoubleToString(currentCombinedProfit, 2));
+
+        if(profitChange > 10.0) {
+            LOG_DEBUG("Significant change: $" + DoubleToString(profitChange, 2));
+        }
+
+        lastPnLUpdateLog = currentTime;
+        lastLoggedProfit = currentCombinedProfit;
+    }
 }
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void CRiskManager::UpdateProfitLoss() {}
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void CRiskManager::TrackClosedTrade(bool isPrimary, double closedVolume, double realizedProfit) {}
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-double CRiskManager::GetCurrentSessionRealizedProfit(bool isPrimary)
-{
-    return 0.0;
-}
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -211,9 +217,6 @@ void CRiskManager::ResetCounters()
 //+------------------------------------------------------------------+
 bool CRiskManager::ShouldRestartSystem()
 {
-    // This method checks various restart conditions, but ExecuteSystemReset
-    // will only proceed if no positions remain open
-
     // Check combined P&L reset condition (existing logic)
     bool combinedPnLMet = CheckCombinedPnLResetCondition();
 
@@ -227,13 +230,18 @@ bool CRiskManager::ShouldRestartSystem()
     // Only suggest restart if conditions are met and we're at max level
     bool shouldRestart = combinedPnLMet && atMaxLevel && profitThresholdMet;
 
-    if(shouldRestart) {
+    // Time-gated restart condition logging (every 5 minutes to avoid spam)
+    static datetime lastRestartConditionLog = 0;
+    datetime currentTime = TimeCurrent();
+
+    if(DebugMode && shouldRestart && (currentTime - lastRestartConditionLog >= 300)) {
         LOG_DEBUG("=== SYSTEM RESTART CONDITIONS MET ===");
         LOG_DEBUG("Combined P&L Reset: " + (combinedPnLMet ? "MET" : "NOT MET"));
         LOG_DEBUG("At Max Martingale Level: " + (atMaxLevel ? "YES" : "NO"));
         LOG_DEBUG("Profit Threshold: " + (profitThresholdMet ? "MET" : "NOT MET"));
         LOG_DEBUG("Combined Profit: $" + DoubleToString(combinedProfit, 2));
         LOG_DEBUG("Note: Actual reset will only execute after complete position closure");
+        lastRestartConditionLog = currentTime;
     }
 
     return shouldRestart;
@@ -257,14 +265,20 @@ bool CRiskManager::CheckCombinedPnLResetCondition()
     // 2. Combined profit must meet minimum threshold
     bool thresholdMet = (combinedProfit >= MinimumProfitThreshold);
 
-    // Log analysis for transparency
-    LOG_DEBUG("=== COMBINED P&L RESET ANALYSIS ===");
-    LOG_DEBUG("Primary Drawdown: $" + DoubleToString(primaryDrawdown, 2));
-    LOG_DEBUG("Combined Profit: $" + DoubleToString(combinedProfit, 2));
-    LOG_DEBUG("Minimum Threshold: $" + DoubleToString(MinimumProfitThreshold, 2));
-    LOG_DEBUG("Drawdown Offset: " + (drawdownOffsetMet ? "MET" : "NOT MET"));
-    LOG_DEBUG("Threshold Met: " + (thresholdMet ? "MET" : "NOT MET"));
-    LOG_DEBUG("Overall Condition: " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
+    // Time-gated detailed analysis logging (every 2 minutes to reduce spam)
+    static datetime lastResetAnalysisLog = 0;
+    datetime currentTime = TimeCurrent();
+
+    if(DebugMode && (currentTime - lastResetAnalysisLog >= 120)) {
+        LOG_DEBUG("=== COMBINED P&L RESET ANALYSIS (PERIODIC) ===");
+        LOG_DEBUG("Primary Drawdown: $" + DoubleToString(primaryDrawdown, 2));
+        LOG_DEBUG("Combined Profit: $" + DoubleToString(combinedProfit, 2));
+        LOG_DEBUG("Minimum Threshold: $" + DoubleToString(MinimumProfitThreshold, 2));
+        LOG_DEBUG("Drawdown Offset: " + (drawdownOffsetMet ? "MET" : "NOT MET"));
+        LOG_DEBUG("Threshold Met: " + (thresholdMet ? "MET" : "NOT MET"));
+        LOG_DEBUG("Overall Condition: " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
+        lastResetAnalysisLog = currentTime;
+    }
 
     return (drawdownOffsetMet && thresholdMet);
 }
@@ -300,10 +314,17 @@ double CRiskManager::CalculateCombinedProfit()
     // Combine closed profits with current open profits
     double combinedProfit = m_primaryClosedProfits + currentOpenProfit;
 
-    LOG_DEBUG("Combined Profit Calculation:");
-    LOG_DEBUG("  Closed Profits: $" + DoubleToString(m_primaryClosedProfits, 2));
-    LOG_DEBUG("  Current Open P&L: $" + DoubleToString(currentOpenProfit, 2));
-    LOG_DEBUG("  Combined Total: $" + DoubleToString(combinedProfit, 2));
+    // Time-gated logging to prevent spam (every 60 seconds)
+    static datetime lastCombinedProfitLog = 0;
+    datetime currentTime = TimeCurrent();
+
+    if(DebugMode && (currentTime - lastCombinedProfitLog >= 60)) {
+        LOG_DEBUG("=== COMBINED PROFIT CALCULATION (PERIODIC) ===");
+        LOG_DEBUG("  Closed Profits: $" + DoubleToString(m_primaryClosedProfits, 2));
+        LOG_DEBUG("  Current Open P&L: $" + DoubleToString(currentOpenProfit, 2));
+        LOG_DEBUG("  Combined Total: $" + DoubleToString(combinedProfit, 2));
+        lastCombinedProfitLog = currentTime;
+    }
 
     return combinedProfit;
 }

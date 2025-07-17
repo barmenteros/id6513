@@ -114,7 +114,7 @@ void CIndicatorManager::DeInit()
     if(m_primaryHandle != INVALID_HANDLE) {
         IndicatorRelease(m_primaryHandle);
         m_primaryHandle = INVALID_HANDLE;
-        Print("Primary indicator handle released");
+        LOG_DEBUG("Primary indicator handle released");
     }
 }
 
@@ -124,21 +124,21 @@ void CIndicatorManager::DeInit()
 bool CIndicatorManager::GetPrimarySignal(double &midlineValue, int &colorIndex)
 {
     if(m_primaryHandle == INVALID_HANDLE) {
-        Print("ERROR: Primary indicator handle is invalid");
+        LOG_DEBUG("ERROR: Primary indicator handle is invalid");
         return false;
     }
 
     // Get Midline value from buffer 0 at specified bar position
     double midlineBuffer[1];
     if(CopyBuffer(m_primaryHandle, 0, m_barPosition, 1, midlineBuffer) <= 0) {
-        Print("ERROR: Failed to read Primary Midline value");
+        LOG_DEBUG("ERROR: Failed to read Primary Midline value");
         return false;
     }
 
     // Get color index from buffer 1 at specified bar position
     double colorBuffer[1];
     if(CopyBuffer(m_primaryHandle, 1, m_barPosition, 1, colorBuffer) <= 0) {
-        Print("ERROR: Failed to read Primary Midline color");
+        LOG_DEBUG("ERROR: Failed to read Primary Midline color");
         return false;
     }
 
@@ -165,21 +165,21 @@ bool CIndicatorManager::GetPrimarySignal(double &midlineValue, int &colorIndex)
 double CIndicatorManager::GetPrimaryATR()
 {
     if(m_primaryHandle == INVALID_HANDLE) {
-        Print("ERROR: Primary indicator handle is invalid for ATR reading");
+        LOG_DEBUG("ERROR: Primary indicator handle is invalid for ATR reading");
         return 0.0;
     }
 
     // Get MidLine value (buffer 0)
     double midlineBuffer[1];
     if(CopyBuffer(m_primaryHandle, 0, m_barPosition, 1, midlineBuffer) <= 0) {
-        Print("ERROR: Failed to read Primary Midline for ATR calculation");
+        LOG_DEBUG("ERROR: Failed to read Primary Midline for ATR calculation");
         return 0.0;
     }
 
     // Get ATRAbove1 value (buffer 2 based on indicator source code)
     double atrAbove1Buffer[1];
     if(CopyBuffer(m_primaryHandle, 2, m_barPosition, 1, atrAbove1Buffer) <= 0) {
-        Print("ERROR: Failed to read Primary ATRAbove1 buffer");
+        LOG_DEBUG("ERROR: Failed to read Primary ATRAbove1 buffer");
         return 0.0;
     }
 
@@ -195,14 +195,14 @@ double CIndicatorManager::GetPrimaryATR()
 double CIndicatorManager::GetPrimaryMOD()
 {
     if(m_primaryHandle == INVALID_HANDLE) {
-        Print("ERROR: Primary indicator handle is invalid for MOD reading");
+        LOG_DEBUG("ERROR: Primary indicator handle is invalid for MOD reading");
         return 0.0;
     }
 
     // Get MOD value from buffer 14 (based on indicator source code)
     double modBuffer[1];
     if(CopyBuffer(m_primaryHandle, 14, m_barPosition, 1, modBuffer) <= 0) {
-        Print("ERROR: Failed to read Primary MOD buffer");
+        LOG_DEBUG("ERROR: Failed to read Primary MOD buffer");
         return 0.0;
     }
 

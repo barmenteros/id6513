@@ -39,18 +39,296 @@ public:
     ENUM_POSITION_TYPE GetPrimaryPositionType();
 
     // Access to CTrade error information
-    uint GetLastPrimaryRetcode() { return m_primaryTrade.ResultRetcode(); }
-    string GetLastPrimaryError() { return m_primaryTrade.ResultRetcodeDescription(); }
+    uint GetLastPrimaryRetcode()
+    {
+        return m_primaryTrade.ResultRetcode();
+    }
+    string GetLastPrimaryError()
+    {
+        return m_primaryTrade.ResultRetcodeDescription();
+    }
 };
 
-// Method stubs - will be implemented in subsequent tasks
-bool CTradeExecutor::OpenPrimaryPosition(ENUM_ORDER_TYPE orderType, double lots, const string comment) { return false; }
-bool CTradeExecutor::ClosePrimaryPosition(double percentage) { return false; }
-bool CTradeExecutor::ClosePrimaryPositionByVolume(double volumeToClose, const string comment) { return false; }
-bool CTradeExecutor::CloseAllPrimaryPositions() { return false; }
-bool CTradeExecutor::ModifyPrimarySLTP(double sl, double tp) { return false; }
-bool CTradeExecutor::IsPrimaryPositionOpen() { return false; }
-double CTradeExecutor::GetPrimaryPositionVolume() { return 0.0; }
-double CTradeExecutor::GetPrimaryPositionProfit() { return 0.0; }
-int CTradeExecutor::GetPrimaryPositionCount() { return 0; }
-ENUM_POSITION_TYPE CTradeExecutor::GetPrimaryPositionType() { return (ENUM_POSITION_TYPE)-1; }
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::OpenPrimaryPosition(ENUM_ORDER_TYPE orderType, double lots, const string comment)
+{
+    if(orderType == ORDER_TYPE_BUY) {
+        return m_primaryTrade.Buy(lots, _Symbol, 0.0, 0.0, 0.0, comment);
+    }
+    else if(orderType == ORDER_TYPE_SELL) {
+        return m_primaryTrade.Sell(lots, _Symbol, 0.0, 0.0, 0.0, comment);
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::ClosePrimaryPosition(double percentage)
+{
+    if(percentage <= 0.0 || percentage > 100.0) {
+        LOG_DEBUG("Trade Executor: Invalid close percentage: " + DoubleToString(percentage, 2));
+        return false;
+    }
+
+// Get total primary position volume
+    double totalVolume = GetPrimaryPositionVolume();
+    if(totalVolume <= 0.0) {
+        LOG_DEBUG("Trade Executor: No primary positions to close");
+        return false;
+    }
+
+// Calculate volume to close
+    double volumeToClose = (totalVolume * percentage) / 100.0;
+
+// Apply broker lot step normalization
+    double brokerLotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+    if(brokerLotStep > 0.0) {
+        volumeToClose = MathRound(volumeToClose / brokerLotStep) * brokerLotStep;
+    }
+
+// Normalize volume using CTrade validation
+    double normalizedVolume = m_primaryTrade.CheckVolume(_Symbol, volumeToClose,
+                              SymbolInfoDouble(_Symbol, SYMBOL_BID),
+                              ORDER_TYPE_SELL);
+
+// Get broker's minimum tradable lot size for intelligent closure handling
+    const double brokerMinLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+    const double tolerance = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 100; // Tolerance for floating point comparison
+
+    bool result = false;
+
+// --- ENHANCED LOGIC: Handle untradable partial volumes ---
+// Check if the calculated partial volume is too small (e.g., 0.005)
+// AND if the remaining total volume is at or very near the broker's minimum tradable lot (e.g., 0.01)
+    if(normalizedVolume < brokerMinLot && MathAbs(totalVolume - brokerMinLot) < tolerance) {
+        LOG_DEBUG("=== INTELLIGENT CLOSURE TRIGGERED ===");
+        LOG_DEBUG("Trade Executor: Calculated partial volume (" + DoubleToString(volumeToClose, 4) +
+                  ") normalized to (" + DoubleToString(normalizedVolume, 4) +
+                  ") is below broker minimum (" + DoubleToString(brokerMinLot, 4) + ")");
+        LOG_DEBUG("Remaining position (" + DoubleToString(totalVolume, 4) +
+                  ") is at broker's minimum lot size");
+        LOG_DEBUG("Strategy: Closing 100% of remaining position instead of untradable partial");
+
+        // Execute full closure of the remaining minimum position
+        result = m_primaryTrade.PositionClose(_Symbol);
+
+        if(result) {
+            LOG_DEBUG("=== INTELLIGENT CLOSURE SUCCESS ===");
+            LOG_DEBUG("Full closure executed successfully for minimum lot position");
+            LOG_DEBUG("This allows profit realization and triggers re-evaluation system");
+        }
+        else {
+            LOG_DEBUG("=== INTELLIGENT CLOSURE FAILED ===");
+            LOG_DEBUG("Full closure of minimum lot failed - " + m_primaryTrade.ResultRetcodeDescription() +
+                      " | Return Code: " + string(m_primaryTrade.ResultRetcode()));
+        }
+    }
+// --- END ENHANCED LOGIC ---
+    else if(normalizedVolume <= 0.0) {
+        LOG_DEBUG("Trade Executor: Invalid volume after normalization: " + DoubleToString(volumeToClose, 2) +
+                  " -> " + DoubleToString(normalizedVolume, 2) + " (cannot trade zero or negative volume)");
+        return false;
+    }
+    else if(normalizedVolume >= totalVolume * 0.99) { // Close all if very close to 100%
+        LOG_DEBUG("Trade Executor: Closing all primary positions (normalized volume close to 100%)");
+        result = m_primaryTrade.PositionClose(_Symbol);
+    }
+    else {
+        LOG_DEBUG("Trade Executor: Standard partial close - Volume: " + DoubleToString(normalizedVolume, 2) +
+                  " of " + DoubleToString(totalVolume, 2));
+        result = m_primaryTrade.PositionClosePartial(_Symbol, normalizedVolume);
+    }
+
+    if(!result) {
+        LOG_DEBUG("Trade Executor: Close failed - " + m_primaryTrade.ResultRetcodeDescription());
+    }
+
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::ClosePrimaryPositionByVolume(double volumeToClose, const string comment = "Partial Volume Close")
+{
+    if(volumeToClose <= 0.0) {
+        LOG_DEBUG("Trade Executor: Invalid volume to close: " + DoubleToString(volumeToClose, 2));
+        return false;
+    }
+
+// Get total primary position volume
+    double totalVolume = GetPrimaryPositionVolume();
+    if(totalVolume <= 0.0) {
+        LOG_DEBUG("Trade Executor: No primary positions to close");
+        return false;
+    }
+
+    if(volumeToClose > totalVolume) {
+        LOG_DEBUG("Trade Executor: Volume to close (" + DoubleToString(volumeToClose, 2) +
+                  ") exceeds total volume (" + DoubleToString(totalVolume, 2) + ")");
+        return false;
+    }
+
+// Apply broker lot step normalization
+    double brokerLotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+    if(brokerLotStep > 0.0) {
+        volumeToClose = MathRound(volumeToClose / brokerLotStep) * brokerLotStep;
+    }
+
+// Normalize volume using CTrade validation
+    double normalizedVolume = m_primaryTrade.CheckVolume(_Symbol, volumeToClose,
+                              SymbolInfoDouble(_Symbol, SYMBOL_BID),
+                              ORDER_TYPE_SELL);
+
+// Get broker's minimum tradable lot size for intelligent closure handling
+    const double brokerMinLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+    const double tolerance = SymbolInfoDouble(_Symbol, SYMBOL_POINT) * 100; // Tolerance for floating point comparison
+
+    bool result = false;
+
+// --- ENHANCED LOGIC: Handle untradable partial volumes ---
+// Check if the calculated partial volume is too small (e.g., 0.005)
+// AND if the remaining total volume is at or very near the broker's minimum tradable lot (e.g., 0.01)
+    if(normalizedVolume < brokerMinLot && MathAbs(totalVolume - brokerMinLot) < tolerance) {
+        LOG_DEBUG("=== INTELLIGENT VOLUME CLOSURE TRIGGERED ===");
+        LOG_DEBUG("Trade Executor: Requested volume (" + DoubleToString(volumeToClose, 4) +
+                  ") normalized to (" + DoubleToString(normalizedVolume, 4) +
+                  ") is below broker minimum (" + DoubleToString(brokerMinLot, 4) + ")");
+        LOG_DEBUG("Remaining position (" + DoubleToString(totalVolume, 4) +
+                  ") is at broker's minimum lot size");
+        LOG_DEBUG("Strategy: Closing 100% of remaining position instead of untradable partial");
+
+        // Execute full closure of the remaining minimum position
+        result = m_primaryTrade.PositionClose(_Symbol);
+
+        if(result) {
+            LOG_DEBUG("=== INTELLIGENT VOLUME CLOSURE SUCCESS ===");
+            LOG_DEBUG("Full closure executed successfully for minimum lot position");
+            LOG_DEBUG("Comment: " + comment + " (adjusted to full closure)");
+        }
+        else {
+            LOG_DEBUG("=== INTELLIGENT VOLUME CLOSURE FAILED ===");
+            LOG_DEBUG("Full closure of minimum lot failed - " + m_primaryTrade.ResultRetcodeDescription() +
+                      " | Return Code: " + string(m_primaryTrade.ResultRetcode()));
+        }
+    }
+// --- END ENHANCED LOGIC ---
+    else if(normalizedVolume <= 0.0) {
+        LOG_DEBUG("Trade Executor: Invalid volume after normalization: " + DoubleToString(volumeToClose, 2));
+        return false;
+    }
+    else if(normalizedVolume >= totalVolume * 0.99) { // Close all if very close to 100%
+        LOG_DEBUG("Trade Executor: Closing all primary positions (normalized volume close to total)");
+        result = m_primaryTrade.PositionClose(_Symbol);
+    }
+    else {
+        LOG_DEBUG("Trade Executor: Specific volume close - Target: " + DoubleToString(volumeToClose, 2) +
+                  " | Normalized: " + DoubleToString(normalizedVolume, 2) +
+                  " | Total: " + DoubleToString(totalVolume, 2));
+        result = m_primaryTrade.PositionClosePartial(_Symbol, normalizedVolume);
+    }
+
+    if(!result) {
+        LOG_DEBUG("Trade Executor: Volume-specific close failed - " + m_primaryTrade.ResultRetcodeDescription());
+    }
+
+    return result;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::CloseAllPrimaryPositions()
+{
+    return m_primaryTrade.PositionClose(_Symbol);
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::ModifyPrimarySLTP(double sl, double tp)
+{
+    return m_primaryTrade.PositionModify(_Symbol, sl, tp);
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::IsPrimaryPositionOpen()
+{
+    for(int i = 0; i < PositionsTotal(); i++) {
+        if(PositionGetSymbol(i) == _Symbol) {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double CTradeExecutor::GetPrimaryPositionVolume()
+{
+    double totalVolume = 0.0;
+    for(int i = 0; i < PositionsTotal(); i++) {
+        if(PositionGetSymbol(i) == _Symbol) {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
+                totalVolume += PositionGetDouble(POSITION_VOLUME);
+            }
+        }
+    }
+    return totalVolume;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+double CTradeExecutor::GetPrimaryPositionProfit()
+{
+    double totalProfit = 0.0;
+    for(int i = 0; i < PositionsTotal(); i++) {
+        if(PositionGetSymbol(i) == _Symbol) {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
+                totalProfit += PositionGetDouble(POSITION_PROFIT);
+            }
+        }
+    }
+    return totalProfit;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+int CTradeExecutor::GetPrimaryPositionCount()
+{
+    int count = 0;
+    for(int i = 0; i < PositionsTotal(); i++) {
+        if(PositionGetSymbol(i) == _Symbol) {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+ENUM_POSITION_TYPE CTradeExecutor::GetPrimaryPositionType()
+{
+    for(int i = 0; i < PositionsTotal(); i++) {
+        if(PositionGetSymbol(i) == _Symbol) {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
+                return (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            }
+        }
+    }
+    return (ENUM_POSITION_TYPE) - 1; // No position found
+}
+//+------------------------------------------------------------------+

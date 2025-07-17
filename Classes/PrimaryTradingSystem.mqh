@@ -134,7 +134,6 @@ public:
     {
         return m_initialLotRemainingVolume;
     }
-    void UpdateInitialLotRemainingVolume(double volumeClosed);
     void UpdateRemainingVolumeAfterPartialClosure(double remainingVolume);
     void SetAverageEntryPrice(double price)
     {
@@ -148,10 +147,6 @@ public:
     double CalculateInitialLotClosureProfit(double volumeToBeClosed, double closurePrice) const;
     double Calculate50PercentProfitTarget() const;
     bool ShouldTriggerInitial50PercentExit(double currentPrice, double previousPrice) const;
-
-    // Re-entry logic
-    bool ShouldAttemptImmediateReEntry(int signalDirection, double currentPrice, double modLevel);
-    void ResetForReEntry();
 };
 
 //+------------------------------------------------------------------+
@@ -302,9 +297,56 @@ void CPrimaryTradingSystem::ResetExitLevels()
 //+------------------------------------------------------------------+
 bool CPrimaryTradingSystem::UpdatePrimaryDirection()
 {
-    // This method will be implemented with full indicator integration
-    // For now, return false to indicate no change
-    return false;
+    double primaryMidline;
+    int primaryColor;
+
+// Get current primary signal from completed bar (position 1)
+    if(!g_indicatorManager.GetPrimarySignal(primaryMidline, primaryColor)) {
+        LOG_DEBUG("Primary Direction: Failed to read indicator signal - maintaining last direction");
+        return false; // Maintain last known direction on read failure
+    }
+
+// Validate color index (robust edge case handling)
+    if(primaryColor != 0 && primaryColor != 1) {
+        LOG_DEBUG("Primary Direction: Invalid color index (" + string(primaryColor) +
+                  ") - maintaining last direction");
+        return false; // Maintain last known direction on invalid data
+    }
+
+// Convert color to direction signal
+    int newDirection = (primaryColor == 0) ? 1 : -1; // 0=Blue=Long, 1=Magenta=Short
+
+// Check for direction change
+    bool directionChanged = (m_lastDirection != 0 && m_lastDirection != newDirection);
+
+    if(directionChanged) {
+        LOG_DEBUG("=== PRIMARY DIRECTION CHANGE DETECTED ===");
+        LOG_DEBUG("Previous Direction: " + (m_lastDirection == 1 ? "LONG" : "SHORT"));
+        LOG_DEBUG("New Direction: " + (newDirection == 1 ? "LONG" : "SHORT"));
+        LOG_DEBUG("Midline Value: " + DoubleToString(primaryMidline, _Digits));
+
+        // Handle existing positions when direction changes
+        if(g_tradeExecutor.IsPrimaryPositionOpen()) {
+            LOG_DEBUG("Primary Direction: Existing positions detected - continuing Martingale management");
+            LOG_DEBUG("Primary Direction: Exit levels remain active for existing positions");
+            // Note: We do NOT reset exit levels here - they continue for existing positions
+        }
+
+        LOG_DEBUG("Primary Direction: Updated for future entries");
+
+        // Properly maintain state transition
+        m_lastDirection = m_direction;  // Store current as previous
+        m_direction = newDirection;     // Update to new direction
+    }
+    else {
+        // No change detected - just update current direction
+        m_direction = newDirection;
+    }
+
+// Primary direction status now included in consolidated STATUS UPDATE - remove individual logging
+// This information is captured in the main OnTick() consolidated status update every 5 minutes
+
+    return directionChanged;
 }
 
 //+------------------------------------------------------------------+
@@ -352,17 +394,53 @@ bool CPrimaryTradingSystem::ShouldOpenPosition(int signalDirection)
 }
 
 //+------------------------------------------------------------------+
-//| Check if should add to position (Martingale)                    |
+//| Check if should add to position (Dynamic MOD-tracking Martingale)|
 //+------------------------------------------------------------------+
 bool CPrimaryTradingSystem::ShouldAddToPosition(double currentPrice, double atrValue)
 {
-    // This method will be implemented with dynamic MOD tracking
-    // For now, return false
-    return false;
+    // Don't add if no position exists
+    if(m_direction == 0 || m_currentLevel <= 0) {
+        return false;
+    }
+
+    // Don't add if already at maximum level
+    if(CMartingaleManager::IsMaxLevelReached(m_currentLevel)) {
+        return false;
+    }
+
+    // Get current MOD reference for dynamic tracking
+    double modReference = GetMODReferencePrice();
+    if(modReference <= 0.0) {
+        // Fallback to current MOD if no reference set
+        modReference = g_indicatorManager.GetPrimaryMOD();
+        if(modReference <= 0.0) {
+            LOG_DEBUG("Martingale Add: No valid MOD reference available");
+            return false;
+        }
+    }
+
+    // Check if price has reached next Martingale level
+    bool shouldTrigger = CMartingaleManager::ShouldTriggerNextEntry(
+                             currentPrice,
+                             modReference,
+                             atrValue,
+                             m_currentLevel,
+                             m_direction
+                         );
+
+    if(shouldTrigger) {
+        LOG_DEBUG("=== MARTINGALE ADDITION TRIGGERED ===");
+        LOG_DEBUG("Current Level: " + string(m_currentLevel) + " → " + string(m_currentLevel + 1));
+        LOG_DEBUG("MOD Reference: " + DoubleToString(modReference, _Digits));
+        LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
+        LOG_DEBUG("Direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
+    }
+
+    return shouldTrigger;
 }
 
 //+------------------------------------------------------------------+
-//| Check if should exit position (ATR-based levels)               |
+//| Enhanced exit position check with proper crossover detection    |
 //+------------------------------------------------------------------+
 bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrValue, double previousPrice)
 {
@@ -370,7 +448,15 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
         return false;
     }
 
-    // Calculate ATR-based exit levels from AEP
+    // Check initial 50% profit target first (if applicable)
+    if(m_hasInitialPosition && !m_initialProfitTargetReached && m_initialLotRemainingVolume > 0.0) {
+        if(ShouldTriggerInitial50PercentExit(currentPrice, previousPrice)) {
+            LOG_DEBUG("=== INITIAL 50% EXIT TRIGGERED ===");
+            return true;
+        }
+    }
+
+    // Check ATR-based exit levels
     double exitLevel1Price = 0.0;
     double exitLevel2Price = 0.0;
 
@@ -385,7 +471,7 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
         exitLevel2Price = m_averageEntryPrice - (ExitLevel2_ATR * atrValue);
     }
 
-    // Check for exit level 1 trigger
+    // Check for exit level 1 trigger (crossover detection)
     if(!m_exitLevel1Executed) {
         bool level1Triggered = false;
 
@@ -406,7 +492,7 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
         }
     }
 
-    // Check for exit level 2 trigger
+    // Check for exit level 2 trigger (crossover detection)
     if(!m_exitLevel2Executed) {
         bool level2Triggered = false;
 
@@ -431,12 +517,91 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
 }
 
 //+------------------------------------------------------------------+
-//| Recover position state from existing positions                  |
+//| Recover position state from existing open positions             |
 //+------------------------------------------------------------------+
 bool CPrimaryTradingSystem::RecoverPositionState()
 {
-    // This method will be implemented for position recovery
-    // For now, return true (no positions to recover)
+    LOG_DEBUG("=== POSITION STATE RECOVERY ===");
+
+    // Check if primary positions exist
+    if(!g_tradeExecutor.IsPrimaryPositionOpen()) {
+        LOG_DEBUG("No primary positions found - starting fresh");
+        return true;
+    }
+
+    // Get position details
+    double totalVolume = g_tradeExecutor.GetPrimaryPositionVolume();
+    double currentProfit = g_tradeExecutor.GetPrimaryPositionProfit();
+    ENUM_POSITION_TYPE positionType = g_tradeExecutor.GetPrimaryPositionType();
+
+    LOG_DEBUG("Existing position found:");
+    LOG_DEBUG("  Volume: " + DoubleToString(totalVolume, 2));
+    LOG_DEBUG("  Type: " + (positionType == POSITION_TYPE_BUY ? "BUY" : "SELL"));
+    LOG_DEBUG("  Profit: $" + DoubleToString(currentProfit, 2));
+
+    // Set direction based on position type
+    m_direction = (positionType == POSITION_TYPE_BUY) ? 1 : -1;
+
+    // Estimate level based on volume (this is an approximation)
+    double estimatedLevel = MathRound(totalVolume / InitialLotSize);
+    m_currentLevel = (int)MathMax(1, estimatedLevel);
+
+    // Set initial position tracking
+    m_hasInitialPosition = true;
+    m_initialLotSize = InitialLotSize; // Use configured initial size
+    m_initialLotRemainingVolume = totalVolume; // Assume all remaining volume is initial
+
+    // Calculate average entry price from current position
+    // This is an approximation - actual AEP would need to be calculated from trade history
+    double currentPrice = (positionType == POSITION_TYPE_BUY) ?
+                          SymbolInfoDouble(_Symbol, SYMBOL_BID) :
+                          SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+    // Estimate AEP based on current profit and volume
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+
+    if(tickValue > 0.0 && tickSize > 0.0 && totalVolume > 0.0) {
+        double profitPerLot = currentProfit / totalVolume;
+        double priceDifference = (profitPerLot * tickSize) / tickValue;
+
+        if(positionType == POSITION_TYPE_BUY) {
+            m_averageEntryPrice = currentPrice - priceDifference;
+        }
+        else {
+            m_averageEntryPrice = currentPrice + priceDifference;
+        }
+    }
+    else {
+        m_averageEntryPrice = currentPrice; // Fallback
+    }
+
+    // Set MOD reference to current MOD for dynamic tracking
+    double currentMOD = g_indicatorManager.GetPrimaryMOD();
+    if(currentMOD > 0.0) {
+        m_modReferencePrice = currentMOD;
+    }
+    else {
+        m_modReferencePrice = m_averageEntryPrice; // Fallback
+    }
+
+    // Initialize extreme price tracking
+    if(m_direction == 1) {
+        m_lowestEntryPrice = m_averageEntryPrice;
+        m_highestEntryPrice = 0.0;
+    }
+    else {
+        m_highestEntryPrice = m_averageEntryPrice;
+        m_lowestEntryPrice = 0.0;
+    }
+
+    LOG_DEBUG("Recovery complete:");
+    LOG_DEBUG("  Direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
+    LOG_DEBUG("  Estimated Level: " + string(m_currentLevel));
+    LOG_DEBUG("  Estimated AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
+    LOG_DEBUG("  MOD Reference: " + DoubleToString(m_modReferencePrice, _Digits));
+    LOG_DEBUG("  Initial Lot Remaining: " + DoubleToString(m_initialLotRemainingVolume, 2));
+
     return true;
 }
 
@@ -676,7 +841,7 @@ double CPrimaryTradingSystem::CalculateInitialLotClosureProfit(double volumeToBe
 }
 
 //+------------------------------------------------------------------+
-//| Calculate initial 50% profit target price                       |
+//| Calculate initial 50% profit target price with proper ATR       |
 //+------------------------------------------------------------------+
 double CPrimaryTradingSystem::Calculate50PercentProfitTarget() const
 {
@@ -684,10 +849,13 @@ double CPrimaryTradingSystem::Calculate50PercentProfitTarget() const
         return 0.0;
     }
 
-    // Get current ATR for profit target calculation
-    double atrValue = 0.0;
-    // Note: In actual implementation, this should get ATR from indicator manager
-    // For now, we'll use a placeholder - this will be integrated when indicator manager is connected
+    // Get current ATR value from indicator manager
+    double atrValue = g_indicatorManager.GetPrimaryATR();
+
+    if(atrValue <= 0.0) {
+        LOG_DEBUG("WARNING: Invalid ATR value for 50% profit target calculation");
+        return 0.0;
+    }
 
     // Calculate 50% profit target: AEP + 1.0 ATR for long, AEP - 1.0 ATR for short
     double profitTargetPrice = 0.0;
@@ -751,26 +919,6 @@ bool CPrimaryTradingSystem::ShouldTriggerInitial50PercentExit(double currentPric
 
     return targetReached;
 }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool CPrimaryTradingSystem::ShouldAttemptImmediateReEntry(int signalDirection, double currentPrice, double modLevel)
-{
-    return false;
-}
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void CPrimaryTradingSystem::ResetForReEntry()
-{
-    Reset();
-}
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void CPrimaryTradingSystem::UpdateInitialLotRemainingVolume(double volumeClosed) {}
 
 //+------------------------------------------------------------------+
 //| Update remaining volume after partial closure                   |
