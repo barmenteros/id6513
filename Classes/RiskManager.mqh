@@ -73,15 +73,9 @@ void CRiskManager::UpdateProfitLoss()
     double currentCombinedProfit = CalculateCombinedProfit();
     double profitChange = MathAbs(currentCombinedProfit - lastLoggedProfit);
 
-    // Only log if significant change (>$10) or every 5 minutes for status
     if(profitChange > 10.0 || (currentTime - lastPnLUpdateLog >= 300)) {
-        LOG_DEBUG("=== P&L UPDATE ===");
-        LOG_DEBUG("Combined P&L: $" + DoubleToString(currentCombinedProfit, 2));
-
-        if(profitChange > 10.0) {
-            LOG_DEBUG("Significant change: $" + DoubleToString(profitChange, 2));
-        }
-
+        LOG_DEBUG("P&L update: Combined: $" + DoubleToString(currentCombinedProfit, 2) + 
+                  (profitChange > 10.0 ? " | Change: $" + DoubleToString(profitChange, 2) : ""));
         lastPnLUpdateLog = currentTime;
         lastLoggedProfit = currentCombinedProfit;
     }
@@ -100,83 +94,44 @@ void CRiskManager::InitializeSystemStartTime()
 //+------------------------------------------------------------------+
 bool CRiskManager::ExecuteSystemReset()
 {
-    LOG_DEBUG("=== COMPLETE SYSTEM RESET EVALUATION ===");
+    LOG_DEBUG("System reset evaluation: Position check starting");
 
-    // Check if any primary positions are still open
     bool primaryPositionExists = g_tradeExecutor.IsPrimaryPositionOpen();
     double primaryVolume = g_tradeExecutor.GetPrimaryPositionVolume();
 
-    LOG_DEBUG("Primary Position Check:");
-    LOG_DEBUG("  Position Exists: " + (primaryPositionExists ? "YES" : "NO"));
-    LOG_DEBUG("  Current Volume: " + DoubleToString(primaryVolume, 2));
+    LOG_DEBUG("Position check: Exists: " + (primaryPositionExists ? "YES" : "NO") + " | Volume: " + DoubleToString(primaryVolume, 2));
 
-    // CRITICAL: Only execute reset if NO positions remain open
     if(primaryPositionExists || primaryVolume > 0.001) {
-        LOG_DEBUG("=== SYSTEM RESET BLOCKED ===");
-        LOG_DEBUG("Reason: Positions still exist - cannot reset while trading");
-        LOG_DEBUG("Reset will be available after complete position closure");
+        LOG_DEBUG("System reset blocked: Positions still exist | Reset available after complete closure");
         return false;
     }
 
-    LOG_DEBUG("=== EXECUTING COMPLETE SYSTEM RESET ===");
-    LOG_DEBUG("Confirmed: No open positions detected");
+    LOG_DEBUG("System reset executing: No open positions confirmed");
 
-    // Close any remaining positions as safety measure (should be none at this point)
+    // Close any remaining positions as safety measure
     bool allPositionsClosed = true;
-
     if(g_tradeExecutor.IsPrimaryPositionOpen()) {
-        LOG_DEBUG("Safety closure: Closing any remaining primary positions");
+        LOG_DEBUG("Safety closure: Closing remaining primary positions");
         if(!g_tradeExecutor.CloseAllPrimaryPositions()) {
-            LOG_DEBUG("WARNING: Failed to close remaining primary positions");
-            LOG_DEBUG("Error: " + g_tradeExecutor.GetLastPrimaryError());
+            LOG_DEBUG("Safety closure failed: " + g_tradeExecutor.GetLastPrimaryError());
             allPositionsClosed = false;
-        }
-        else {
-            LOG_DEBUG("Safety closure: All remaining positions closed successfully");
         }
     }
 
     if(!allPositionsClosed) {
-        LOG_DEBUG("=== SYSTEM RESET FAILED ===");
-        LOG_DEBUG("Reason: Could not close all positions");
+        LOG_DEBUG("System reset failed: Could not close all positions");
         return false;
     }
 
-    // Reset all system components for fresh cycle
-    LOG_DEBUG("=== RESETTING SYSTEM COMPONENTS ===");
-
-    // 1. Reset primary trading system (clears all position tracking)
+    LOG_DEBUG("System components resetting: Primary system | Risk manager | Counters");
     g_primarySystem.Reset();
-    LOG_DEBUG("✓ Primary trading system reset");
-
-    // 2. Reset risk manager counters
     ResetCounters();
-    LOG_DEBUG("✓ Risk manager counters reset");
 
-    // 3. Reset system start time for new cycle
     m_systemStartTime = TimeCurrent();
-    LOG_DEBUG("✓ System start time reset to: " + TimeToString(m_systemStartTime));
-
-    // 4. Reset drawdown tracking
     m_drawdownAtMaxMartingale = 0.0;
-    LOG_DEBUG("✓ Drawdown stop loss tracking reset");
-
-    // 5. Clear reset condition flag
     m_resetConditionMet = false;
-    LOG_DEBUG("✓ Reset condition flag cleared");
 
-    LOG_DEBUG("=== COMPLETE SYSTEM RESET SUCCESSFUL ===");
-    LOG_DEBUG("System Status: IDLE - Ready for new MOD pullback opportunity");
-    LOG_DEBUG("Next Action: Monitor for fresh initial entry conditions");
-    LOG_DEBUG("Available Levels: " + string(MaxEntryLevels) + " (full Martingale sequence)");
-
-    // Log the transition state
-    LOG_DEBUG("=== TRANSITION TO IDLE STATE ===");
-    LOG_DEBUG("EA will now:");
-    LOG_DEBUG("  1. Monitor primary chart Midline direction");
-    LOG_DEBUG("  2. Wait for MOD pullback conditions");
-    LOG_DEBUG("  3. Execute fresh initial entry when conditions are met");
-    LOG_DEBUG("  4. Begin new Martingale sequence from scratch");
+    LOG_DEBUG("System reset complete: Status IDLE | Ready for new MOD pullback | Available levels: " + string(MaxEntryLevels) + " | Next: Monitor Midline direction > MOD pullback > Execute fresh entry");
 
     return true;
 }
@@ -202,14 +157,11 @@ void CRiskManager::ResetCounters()
     m_drawdownAtMaxMartingale = 0.0;
     m_resetConditionMet = false;
 
-    LOG_DEBUG("Counter Reset Summary:");
-    LOG_DEBUG("  Total Closed Profits: $" + DoubleToString(prevTotalProfit, 2) + " → $0.00");
-    LOG_DEBUG("  Primary Closed Profits: $" + DoubleToString(prevPrimaryProfit, 2) + " → $0.00");
-    LOG_DEBUG("  Total Closed Volume: " + DoubleToString(prevVolume, 2) + " → 0.00");
-    LOG_DEBUG("  Max Drawdown: $" + DoubleToString(prevMaxDrawdown, 2) + " → $0.00");
-    LOG_DEBUG("  Drawdown at Max Martingale: Reset to $0.00");
-    LOG_DEBUG("  Reset Condition: Cleared");
-    LOG_DEBUG("=== COUNTERS RESET COMPLETE ===");
+    LOG_DEBUG("Risk manager counters reset: " +
+              "Total profits: $" + DoubleToString(prevTotalProfit, 2) + ">$0 | " +
+              "Primary profits: $" + DoubleToString(prevPrimaryProfit, 2) + ">$0 | " +
+              "Volume: " + DoubleToString(prevVolume, 2) + ">0 | " +
+              "Max drawdown: $" + DoubleToString(prevMaxDrawdown, 2) + ">$0");
 }
 
 //+------------------------------------------------------------------+
@@ -217,30 +169,21 @@ void CRiskManager::ResetCounters()
 //+------------------------------------------------------------------+
 bool CRiskManager::ShouldRestartSystem()
 {
-    // Check combined P&L reset condition (existing logic)
     bool combinedPnLMet = CheckCombinedPnLResetCondition();
-
-    // Check if at maximum Martingale level
     bool atMaxLevel = (g_primarySystem.GetCurrentLevel() >= MaxEntryLevels);
-
-    // Check if minimum profit threshold is met
     double combinedProfit = CalculateCombinedProfit();
     bool profitThresholdMet = (combinedProfit >= MinimumProfitThreshold);
-
-    // Only suggest restart if conditions are met and we're at max level
     bool shouldRestart = combinedPnLMet && atMaxLevel && profitThresholdMet;
 
-    // Time-gated restart condition logging (every 5 minutes to avoid spam)
     static datetime lastRestartConditionLog = 0;
     datetime currentTime = TimeCurrent();
 
     if(shouldRestart && (currentTime - lastRestartConditionLog >= 300)) {
-        LOG_DEBUG("=== SYSTEM RESTART CONDITIONS MET ===");
-        LOG_DEBUG("Combined P&L Reset: " + (combinedPnLMet ? "MET" : "NOT MET"));
-        LOG_DEBUG("At Max Martingale Level: " + (atMaxLevel ? "YES" : "NO"));
-        LOG_DEBUG("Profit Threshold: " + (profitThresholdMet ? "MET" : "NOT MET"));
-        LOG_DEBUG("Combined Profit: $" + DoubleToString(combinedProfit, 2));
-        LOG_DEBUG("Note: Actual reset will only execute after complete position closure");
+        LOG_DEBUG("System restart conditions met: P&L reset: " + (combinedPnLMet ? "YES" : "NO") + 
+                  " | Max level: " + (atMaxLevel ? "YES" : "NO") + 
+                  " | Profit threshold: " + (profitThresholdMet ? "YES" : "NO") + 
+                  " | Combined: $" + DoubleToString(combinedProfit, 2) + 
+                  " | Reset available after complete closure");
         lastRestartConditionLog = currentTime;
     }
 
@@ -259,21 +202,17 @@ bool CRiskManager::CheckCombinedPnLResetCondition()
     double combinedProfit = CalculateCombinedProfit();
 
     // Two conditions must be met for reset eligibility:
-    // 1. Combined profit must offset primary drawdown
     bool drawdownOffsetMet = (combinedProfit > MathAbs(primaryDrawdown));
-
-    // 2. Combined profit must meet minimum threshold
     bool thresholdMet = (combinedProfit >= MinimumProfitThreshold);
 
-    // Time-gated detailed analysis logging (every 2 minutes to reduce spam)
     static datetime lastResetAnalysisLog = 0;
     datetime currentTime = TimeCurrent();
 
     if(currentTime - lastResetAnalysisLog >= 120) {
-        LOG_DEBUG("Reset analysis: Drawdown $" + DoubleToString(primaryDrawdown, 2) + 
-        " | Profit $" + DoubleToString(combinedProfit, 2) + 
-        " | Threshold $" + DoubleToString(MinimumProfitThreshold, 2) + 
-        " | " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
+        LOG_DEBUG("Reset analysis: Drawdown: $" + DoubleToString(primaryDrawdown, 2) + 
+                  " | Profit: $" + DoubleToString(combinedProfit, 2) + 
+                  " | Threshold: $" + DoubleToString(MinimumProfitThreshold, 2) + 
+                  " | Status: " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
         lastResetAnalysisLog = currentTime;
     }
 
@@ -331,19 +270,14 @@ bool CRiskManager::CheckDrawdownStopLoss()
     // Get current primary position P&L
     double currentPrimaryPnL = g_tradeExecutor.GetPrimaryPositionProfit();
 
-    // Initialize drawdown reference if not set (first time at max level)
     if(m_drawdownAtMaxMartingale == 0.0 && currentPrimaryPnL < 0.0) {
         m_drawdownAtMaxMartingale = currentPrimaryPnL;
-        LOG_DEBUG("Drawdown stop loss activated: Reference $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
-                  " | " + DoubleToString(DrawdownStopLossPercentage, 2) + "% stop loss");
-
-        // Calculate and log the trigger level for transparency
         double additionalDrawdown = MathAbs(m_drawdownAtMaxMartingale) * (DrawdownStopLossPercentage / 100.0);
         double triggerLevel = m_drawdownAtMaxMartingale - additionalDrawdown;
-        LOG_DEBUG("Drawdown monitoring: Trigger $" + DoubleToString(triggerLevel, 2) +
-                  " | Current P&L $" + DoubleToString(currentPrimaryPnL, 2));
-
-        return false; // Don't trigger on initialization
+        
+        LOG_DEBUG("Drawdown stop loss activated: Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
+                  " | Stop: " + DoubleToString(DrawdownStopLossPercentage, 2) + "% | Trigger: $" + DoubleToString(triggerLevel, 2));
+        return false;
     }
 
     // Skip check if reference drawdown not properly set
@@ -360,24 +294,20 @@ bool CRiskManager::CheckDrawdownStopLoss()
     // Check if current P&L has breached the stop loss level
     bool stopLossTriggered = (currentPrimaryPnL <= stopLossTriggerLevel);
 
-    // Log monitoring status periodically (every 30 seconds to avoid spam)
     static datetime lastMonitoringLog = 0;
     datetime currentTime = TimeCurrent();
     if(currentTime - lastMonitoringLog >= 30) {
-        LOG_DEBUG("Drawdown monitoring: Reference $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
-                  " | Current $" + DoubleToString(currentPrimaryPnL, 2) +
-                  " | Trigger $" + DoubleToString(stopLossTriggerLevel, 2) +
-                  " | " + (stopLossTriggered ? "TRIGGERED" : "MONITORING"));
+        LOG_DEBUG("Drawdown monitoring: Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
+                  " | Current: $" + DoubleToString(currentPrimaryPnL, 2) + 
+                  " | Trigger: $" + DoubleToString(stopLossTriggerLevel, 2) + 
+                  " | Status: " + (stopLossTriggered ? "TRIGGERED" : "MONITORING"));
         lastMonitoringLog = currentTime;
     }
 
     if(stopLossTriggered) {
-        LOG_DEBUG("EMERGENCY: Drawdown stop loss triggered - Reference $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
-                  " | Current $" + DoubleToString(currentPrimaryPnL, 2) +
-                  " | Trigger $" + DoubleToString(stopLossTriggerLevel, 2) +
-                  " | Breach $" + DoubleToString(currentPrimaryPnL - stopLossTriggerLevel, 2));
-
-        // Reset the drawdown reference to prevent repeated triggers
+        LOG_DEBUG("EMERGENCY: Drawdown stop loss triggered | Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
+                  " | Current: $" + DoubleToString(currentPrimaryPnL, 2) + 
+                  " | Breach: $" + DoubleToString(currentPrimaryPnL - stopLossTriggerLevel, 2));
         m_drawdownAtMaxMartingale = 0.0;
     }
 
@@ -389,13 +319,11 @@ bool CRiskManager::CheckDrawdownStopLoss()
 //+------------------------------------------------------------------+
 void CRiskManager::SetDrawdownAtMaxMartingale(double drawdown)
 {
-    // Only set if this is a valid drawdown (negative value) and we're at max level
     if(drawdown < 0.0 && g_primarySystem.GetCurrentLevel() == MaxEntryLevels) {
-        // Only update if not already set (prevent overwriting during max level)
         if(m_drawdownAtMaxMartingale == 0.0) {
             m_drawdownAtMaxMartingale = drawdown;
-            LOG_DEBUG("Drawdown reference set: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
-                      " | Stop loss at " + DoubleToString(DrawdownStopLossPercentage, 2) + "% additional loss");
+            LOG_DEBUG("Drawdown reference set: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
+                      " | Stop loss: " + DoubleToString(DrawdownStopLossPercentage, 2) + "%");
         }
     }
 }

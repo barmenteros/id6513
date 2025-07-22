@@ -217,25 +217,13 @@ void CPrimaryTradingSystem::Reset()
     m_initialProfitTargetReached = false;
     m_hasInitialPosition = false;
 
-    // Reset entry condition tracking for new cycle
     m_entryConditionsPreviouslySatisfied = false;
-
-    // Reset extreme price tracking
     m_lowestEntryPrice = 0.0;
     m_highestEntryPrice = 0.0;
-
-    // Reset MOD reference
     m_modReferencePrice = 0.0;
     m_isReclassified = false;
 
-    LOG_DEBUG("Primary System: Complete reset");
-    LOG_DEBUG("  Position tracking: CLEARED");
-    LOG_DEBUG("  Direction tracking: RESET");
-    LOG_DEBUG("  MOD pullback detection: RESET");
-    LOG_DEBUG("  Exit levels: RESET");
-    LOG_DEBUG("  Extreme price tracking: RESET");
-    LOG_DEBUG("  MOD reference: RESET");
-    LOG_DEBUG("  System ready for: NEW ENTRY CYCLE");
+    LOG_DEBUG("Primary system reset: Position tracking cleared | Direction reset | MOD pullback reset | Exit levels reset | Extreme price reset | MOD reference reset | Ready for new entry cycle");
 }
 
 //+------------------------------------------------------------------+
