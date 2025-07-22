@@ -103,16 +103,11 @@ double CMartingaleManager::CalculateNextEntryPrice(double modReferencePrice, dou
     }
 
     // Log calculation details
-    LOG_DEBUG("=== DYNAMIC MOD MARTINGALE CALCULATION ===");
-    LOG_DEBUG("MOD Reference Price: " + DoubleToString(modReferencePrice, _Digits));
-    LOG_DEBUG("Current Level: " + string(currentLevel) + " → Next Level: " + string(nextLevel));
-    LOG_DEBUG("ATR Value: " + DoubleToString(atrValue, _Digits));
-    LOG_DEBUG("ATR Multiplier: " + DoubleToString(ATRMultiplier, 2));
-    LOG_DEBUG("Level " + string(nextLevel) + " Spacing: " + DoubleToString(GetLevelSpacing(nextLevel), 1) + " ATR");
-    LOG_DEBUG("Cumulative Distance: " + DoubleToString(cumulativeDistance, _Digits));
-    LOG_DEBUG("Direction: " + (direction == 1 ? "LONG" : "SHORT"));
-    LOG_DEBUG("Next Entry Price: " + DoubleToString(entryPrice, _Digits));
-    LOG_DEBUG("=== CALCULATION COMPLETE ===");
+    LOG_DEBUG("Martingale calculation: Level " + string(currentLevel) + ">" + string(nextLevel) +
+              " | MOD: " + DoubleToString(modReferencePrice, _Digits) +
+              " | Entry: " + DoubleToString(entryPrice, _Digits) +
+              " | Distance: " + DoubleToString(cumulativeDistance, _Digits) +
+              " (" + DoubleToString(GetLevelSpacing(nextLevel), 1) + " ATR)");
 
     return entryPrice;
 }
@@ -156,13 +151,11 @@ bool CMartingaleManager::ShouldTriggerNextEntry(double currentPrice, double modR
 
     // Log trigger evaluation
     if(shouldTrigger) {
-        LOG_DEBUG("=== MARTINGALE TRIGGER DETECTED ===");
-        LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-        LOG_DEBUG("Target Entry Price: " + DoubleToString(targetPrice, _Digits));
-        LOG_DEBUG("MOD Reference: " + DoubleToString(modReferencePrice, _Digits));
-        LOG_DEBUG("Direction: " + (direction == 1 ? "LONG" : "SHORT"));
-        LOG_DEBUG("Current Level: " + string(currentLevel) + " → Triggering Level: " + string(currentLevel + 1));
-        LOG_DEBUG("=== TRIGGER CONFIRMED ===");
+        LOG_DEBUG("Martingale trigger: Level " + string(currentLevel) + ">" + string(currentLevel + 1) +
+                  " | Price: " + DoubleToString(currentPrice, _Digits) +
+                  " | Target: " + DoubleToString(targetPrice, _Digits) +
+                  " | MOD: " + DoubleToString(modReferencePrice, _Digits) +
+                  " | " + (direction == 1 ? "LONG" : "SHORT"));
     }
 
     return shouldTrigger;

@@ -74,7 +74,7 @@ void CRiskManager::UpdateProfitLoss()
     double profitChange = MathAbs(currentCombinedProfit - lastLoggedProfit);
 
     // Only log if significant change (>$10) or every 5 minutes for status
-    if(DebugMode && (profitChange > 10.0 || (currentTime - lastPnLUpdateLog >= 300))) {
+    if(profitChange > 10.0 || (currentTime - lastPnLUpdateLog >= 300)) {
         LOG_DEBUG("=== P&L UPDATE ===");
         LOG_DEBUG("Combined P&L: $" + DoubleToString(currentCombinedProfit, 2));
 
@@ -234,7 +234,7 @@ bool CRiskManager::ShouldRestartSystem()
     static datetime lastRestartConditionLog = 0;
     datetime currentTime = TimeCurrent();
 
-    if(DebugMode && shouldRestart && (currentTime - lastRestartConditionLog >= 300)) {
+    if(shouldRestart && (currentTime - lastRestartConditionLog >= 300)) {
         LOG_DEBUG("=== SYSTEM RESTART CONDITIONS MET ===");
         LOG_DEBUG("Combined P&L Reset: " + (combinedPnLMet ? "MET" : "NOT MET"));
         LOG_DEBUG("At Max Martingale Level: " + (atMaxLevel ? "YES" : "NO"));
@@ -269,14 +269,11 @@ bool CRiskManager::CheckCombinedPnLResetCondition()
     static datetime lastResetAnalysisLog = 0;
     datetime currentTime = TimeCurrent();
 
-    if(DebugMode && (currentTime - lastResetAnalysisLog >= 120)) {
-        LOG_DEBUG("=== COMBINED P&L RESET ANALYSIS (PERIODIC) ===");
-        LOG_DEBUG("Primary Drawdown: $" + DoubleToString(primaryDrawdown, 2));
-        LOG_DEBUG("Combined Profit: $" + DoubleToString(combinedProfit, 2));
-        LOG_DEBUG("Minimum Threshold: $" + DoubleToString(MinimumProfitThreshold, 2));
-        LOG_DEBUG("Drawdown Offset: " + (drawdownOffsetMet ? "MET" : "NOT MET"));
-        LOG_DEBUG("Threshold Met: " + (thresholdMet ? "MET" : "NOT MET"));
-        LOG_DEBUG("Overall Condition: " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
+    if(currentTime - lastResetAnalysisLog >= 120) {
+        LOG_DEBUG("Reset analysis: Drawdown $" + DoubleToString(primaryDrawdown, 2) + 
+        " | Profit $" + DoubleToString(combinedProfit, 2) + 
+        " | Threshold $" + DoubleToString(MinimumProfitThreshold, 2) + 
+        " | " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
         lastResetAnalysisLog = currentTime;
     }
 
@@ -297,7 +294,7 @@ double CRiskManager::CalculatePrimaryDrawdown()
     // Drawdown is negative profit (loss)
     double drawdown = (currentProfit < 0.0) ? currentProfit : 0.0;
 
-    LOG_DEBUG("Primary Drawdown Calculation: $" + DoubleToString(drawdown, 2));
+//    LOG_DEBUG("Primary Drawdown Calculation: $" + DoubleToString(drawdown, 2));
 
     return drawdown;
 }
@@ -313,18 +310,6 @@ double CRiskManager::CalculateCombinedProfit()
 
     // Combine closed profits with current open profits
     double combinedProfit = m_primaryClosedProfits + currentOpenProfit;
-
-    // Time-gated logging to prevent spam (every 60 seconds)
-    static datetime lastCombinedProfitLog = 0;
-    datetime currentTime = TimeCurrent();
-
-    if(DebugMode && (currentTime - lastCombinedProfitLog >= 60)) {
-        LOG_DEBUG("=== COMBINED PROFIT CALCULATION (PERIODIC) ===");
-        LOG_DEBUG("  Closed Profits: $" + DoubleToString(m_primaryClosedProfits, 2));
-        LOG_DEBUG("  Current Open P&L: $" + DoubleToString(currentOpenProfit, 2));
-        LOG_DEBUG("  Combined Total: $" + DoubleToString(combinedProfit, 2));
-        lastCombinedProfitLog = currentTime;
-    }
 
     return combinedProfit;
 }
@@ -349,17 +334,14 @@ bool CRiskManager::CheckDrawdownStopLoss()
     // Initialize drawdown reference if not set (first time at max level)
     if(m_drawdownAtMaxMartingale == 0.0 && currentPrimaryPnL < 0.0) {
         m_drawdownAtMaxMartingale = currentPrimaryPnL;
-        LOG_DEBUG("=== DRAWDOWN STOP LOSS ACTIVATED ===");
-        LOG_DEBUG("Maximum Martingale level reached - Initializing drawdown reference");
-        LOG_DEBUG("Reference Drawdown: $" + DoubleToString(m_drawdownAtMaxMartingale, 2));
-        LOG_DEBUG("Stop Loss Percentage: " + DoubleToString(DrawdownStopLossPercentage, 2) + "%");
+        LOG_DEBUG("Drawdown stop loss activated: Reference $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
+                  " | " + DoubleToString(DrawdownStopLossPercentage, 2) + "% stop loss");
 
         // Calculate and log the trigger level for transparency
         double additionalDrawdown = MathAbs(m_drawdownAtMaxMartingale) * (DrawdownStopLossPercentage / 100.0);
         double triggerLevel = m_drawdownAtMaxMartingale - additionalDrawdown;
-        LOG_DEBUG("Stop Loss Trigger Level: $" + DoubleToString(triggerLevel, 2));
-        LOG_DEBUG("Current P&L: $" + DoubleToString(currentPrimaryPnL, 2));
-        LOG_DEBUG("=== MONITORING ACTIVE ===");
+        LOG_DEBUG("Drawdown monitoring: Trigger $" + DoubleToString(triggerLevel, 2) +
+                  " | Current P&L $" + DoubleToString(currentPrimaryPnL, 2));
 
         return false; // Don't trigger on initialization
     }
@@ -382,25 +364,18 @@ bool CRiskManager::CheckDrawdownStopLoss()
     static datetime lastMonitoringLog = 0;
     datetime currentTime = TimeCurrent();
     if(currentTime - lastMonitoringLog >= 30) {
-        LOG_DEBUG("=== DRAWDOWN STOP LOSS MONITORING ===");
-        LOG_DEBUG("Reference Drawdown: $" + DoubleToString(m_drawdownAtMaxMartingale, 2));
-        LOG_DEBUG("Current P&L: $" + DoubleToString(currentPrimaryPnL, 2));
-        LOG_DEBUG("Stop Loss Trigger: $" + DoubleToString(stopLossTriggerLevel, 2));
-        LOG_DEBUG("Additional Drawdown Allowed: $" + DoubleToString(additionalDrawdownAmount, 2) +
-                  " (" + DoubleToString(DrawdownStopLossPercentage, 2) + "%)");
-        LOG_DEBUG("Status: " + (stopLossTriggered ? "TRIGGERED - EMERGENCY STOP" : "MONITORING"));
+        LOG_DEBUG("Drawdown monitoring: Reference $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
+                  " | Current $" + DoubleToString(currentPrimaryPnL, 2) +
+                  " | Trigger $" + DoubleToString(stopLossTriggerLevel, 2) +
+                  " | " + (stopLossTriggered ? "TRIGGERED" : "MONITORING"));
         lastMonitoringLog = currentTime;
     }
 
     if(stopLossTriggered) {
-        LOG_DEBUG("=== DRAWDOWN STOP LOSS TRIGGERED ===");
-        LOG_DEBUG("EMERGENCY RISK MANAGEMENT ACTIVATION");
-        LOG_DEBUG("Reference Drawdown: $" + DoubleToString(m_drawdownAtMaxMartingale, 2));
-        LOG_DEBUG("Current P&L: $" + DoubleToString(currentPrimaryPnL, 2));
-        LOG_DEBUG("Stop Loss Trigger: $" + DoubleToString(stopLossTriggerLevel, 2));
-        LOG_DEBUG("Drawdown Breach: $" + DoubleToString(currentPrimaryPnL - stopLossTriggerLevel, 2));
-        LOG_DEBUG("Stop Loss Percentage: " + DoubleToString(DrawdownStopLossPercentage, 2) + "%");
-        LOG_DEBUG("=== EXECUTING EMERGENCY SYSTEM RESET ===");
+        LOG_DEBUG("EMERGENCY: Drawdown stop loss triggered - Reference $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
+                  " | Current $" + DoubleToString(currentPrimaryPnL, 2) +
+                  " | Trigger $" + DoubleToString(stopLossTriggerLevel, 2) +
+                  " | Breach $" + DoubleToString(currentPrimaryPnL - stopLossTriggerLevel, 2));
 
         // Reset the drawdown reference to prevent repeated triggers
         m_drawdownAtMaxMartingale = 0.0;
@@ -419,10 +394,8 @@ void CRiskManager::SetDrawdownAtMaxMartingale(double drawdown)
         // Only update if not already set (prevent overwriting during max level)
         if(m_drawdownAtMaxMartingale == 0.0) {
             m_drawdownAtMaxMartingale = drawdown;
-            LOG_DEBUG("=== DRAWDOWN REFERENCE SET ===");
-            LOG_DEBUG("Max Martingale level reached - Drawdown reference captured");
-            LOG_DEBUG("Reference Drawdown: $" + DoubleToString(m_drawdownAtMaxMartingale, 2));
-            LOG_DEBUG("Stop Loss will trigger at: " + DoubleToString(DrawdownStopLossPercentage, 2) + "% additional loss");
+            LOG_DEBUG("Drawdown reference set: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
+                      " | Stop loss at " + DoubleToString(DrawdownStopLossPercentage, 2) + "% additional loss");
         }
     }
 }

@@ -21,8 +21,6 @@ private:
     int m_lastDirection; // Track previous direction for change detection
     double m_lastMODLevel;         // Track previous MOD level for pullback detection
     double m_lastPrice;            // Track previous price for movement detection
-    bool m_awayFromMOD;            // Flag indicating price moved away from MOD
-    bool m_readyForPullbackEntry;  // Flag indicating pullback conditions are met
     double m_initialLotSize;           // Size of the initial entry
     double m_initialLotRemainingVolume; // Remaining volume from initial entry
     double m_initialEntryPrice;        // Entry price of initial position
@@ -32,30 +30,78 @@ private:
     double m_lowestEntryPrice;     // For long positions - tracks lowest entry price
     double m_highestEntryPrice;    // For short positions - tracks highest entry price
     double m_modReferencePrice;    // Dynamic MOD reference for Martingale calculations
+    bool m_isReclassified;         // Track if position was reclassified
 
 public:
     CPrimaryTradingSystem() : m_averageEntryPrice(0), m_currentLevel(0), m_direction(0),
         m_exitLevel1Executed(false), m_exitLevel2Executed(false),
         m_lastDirection(0), m_lastMODLevel(0), m_lastPrice(0),
-        m_awayFromMOD(false), m_readyForPullbackEntry(false),
         m_entryConditionsPreviouslySatisfied(false),
         m_lowestEntryPrice(0.0), m_highestEntryPrice(0.0),
-        m_modReferencePrice(0.0) {}
+        m_modReferencePrice(0.0), m_isReclassified(false) {}
 
     // Core trading logic
     bool ShouldOpenPosition(int signalDirection);
     bool ShouldAddToPosition(double currentPrice, double atrValue);
-    bool ShouldExitPosition(double currentPrice, double atrValue, double previousPrice);
-    bool RecoverPositionState();
+    ENUM_EXIT_TYPE ShouldExitPosition(double currentPrice, double atrValue, double previousPrice);
+    bool EstimatePositionStateFromTrades();
     void UpdateAveragePrice(double price, double lots);
     bool UpdatePrimaryDirection();
     bool DetectMODPullback(double currentPrice, double currentMOD);
-    bool IsReadyForInitialEntry(double currentPrice, double currentMOD);
-    void ResetPullbackTracking();
     void Reset();
-    void ReclassifyAfterPartialExit(double currentMOD); // NEW: Dynamic MOD tracking
+    void ReclassifyAfterPartialExit(double currentMOD); // Dynamic MOD tracking
+
+    // State restoration setters
+    void SetMODReferencePrice(double price)
+    {
+        m_modReferencePrice = price;
+    }
+    void SetCurrentLevel(int level)
+    {
+        m_currentLevel = level;
+    }
+    void SetInitialEntryPrice(double price)
+    {
+        m_initialEntryPrice = price;
+    }
+    void SetLowestEntryPrice(double price)
+    {
+        m_lowestEntryPrice = price;
+    }
+    void SetHighestEntryPrice(double price)
+    {
+        m_highestEntryPrice = price;
+    }
+    void SetInitialLotSize(double size)
+    {
+        m_initialLotSize = size;
+    }
+    void SetInitialLotRemainingVolume(double volume)
+    {
+        m_initialLotRemainingVolume = volume;
+    }
+    void SetHasInitialPosition(bool hasPos)
+    {
+        m_hasInitialPosition = hasPos;
+    }
+    void SetIsReclassified(bool reclassified)
+    {
+        m_isReclassified = reclassified;
+    }
+    void SetInitialProfitTargetReached(bool reached)
+    {
+        m_initialProfitTargetReached = reached;
+    }
 
     // Getters and setters
+    bool IsReclassified() const
+    {
+        return m_isReclassified;
+    }
+    void SetReclassified(bool reclassified)
+    {
+        m_isReclassified = reclassified;
+    }
     int GetLastDirection() const
     {
         return m_lastDirection;
@@ -140,7 +186,6 @@ public:
         m_averageEntryPrice = price;
     }
     bool IsReclassificationNeeded() const;
-    void SetInitialProfitTargetReached(bool reached);
 
     // Profit calculations
     double CalculateInitialLotProfit(double currentPrice) const;
@@ -164,8 +209,6 @@ void CPrimaryTradingSystem::Reset()
     // Reset MOD pullback tracking
     m_lastMODLevel = 0;
     m_lastPrice = 0;
-    m_awayFromMOD = false;
-    m_readyForPullbackEntry = false;
 
     // Reset initial lot tracking
     m_initialLotSize = 0.0;
@@ -183,6 +226,7 @@ void CPrimaryTradingSystem::Reset()
 
     // Reset MOD reference
     m_modReferencePrice = 0.0;
+    m_isReclassified = false;
 
     LOG_DEBUG("Primary System: Complete reset");
     LOG_DEBUG("  Position tracking: CLEARED");
@@ -199,11 +243,8 @@ void CPrimaryTradingSystem::Reset()
 //+------------------------------------------------------------------+
 void CPrimaryTradingSystem::ReclassifyAfterPartialExit(double currentMOD)
 {
-    LOG_DEBUG("=== POSITION RECLASSIFICATION FOR DYNAMIC MOD TRACKING ===");
-    LOG_DEBUG("Previous MOD Reference: " + DoubleToString(m_modReferencePrice, _Digits));
-    LOG_DEBUG("Current MOD Level: " + DoubleToString(currentMOD, _Digits));
-    LOG_DEBUG("Previous Current Level: " + string(m_currentLevel));
-    LOG_DEBUG("Previous Average Entry Price: " + DoubleToString(m_averageEntryPrice, _Digits));
+    LOG_DEBUG("Position reclassification: Level " + string(m_currentLevel) + " | MOD: " + DoubleToString(m_modReferencePrice, _Digits) +
+              " > " + DoubleToString(currentMOD, _Digits) + " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
 
     // Validate current MOD value
     if(currentMOD <= 0.0) {
@@ -245,26 +286,15 @@ void CPrimaryTradingSystem::ReclassifyAfterPartialExit(double currentMOD)
     m_hasInitialPosition = false;           // No longer tracking original initial position
     m_initialProfitTargetReached = false;   // Reset profit target tracking
 
+    m_isReclassified = true;  // Mark as reclassified
+
     // 7. Reset initial lot tracking (remaining volume becomes new base)
     // Note: Actual remaining volume will be updated by trade executor
     // We don't modify m_initialLotSize or m_initialLotRemainingVolume here
     // as they should reflect the actual remaining position volume
 
-    LOG_DEBUG("=== RECLASSIFICATION COMPLETE ===");
-    LOG_DEBUG("New MOD Reference: " + DoubleToString(m_modReferencePrice, _Digits));
-    LOG_DEBUG("New Current Level: " + string(m_currentLevel));
-    LOG_DEBUG("New Initial Entry Price: " + DoubleToString(m_initialEntryPrice, _Digits));
-    LOG_DEBUG("Available Martingale Slots: " + string(MaxEntryLevels - m_currentLevel));
-    LOG_DEBUG("Exit levels reset for new sequence");
-    LOG_DEBUG("Extreme price tracking updated for direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
-    LOG_DEBUG("System ready for dynamic Martingale progression from new MOD");
-
-    // Log the transformation summary
-    LOG_DEBUG("TRANSFORMATION SUMMARY:");
-    LOG_DEBUG("  MOD Reference: " + DoubleToString(previousMODRef, _Digits) + " → " + DoubleToString(m_modReferencePrice, _Digits));
-    LOG_DEBUG("  Martingale Level: " + string(previousLevel) + " → " + string(m_currentLevel));
-    LOG_DEBUG("  Available Levels: " + string(MaxEntryLevels - previousLevel) + " → " + string(MaxEntryLevels - m_currentLevel));
-    LOG_DEBUG("  Remaining position now serves as foundation for new Martingale sequence");
+    LOG_DEBUG("Reclassification complete: Level " + string(m_currentLevel) + " | MOD: " + DoubleToString(m_modReferencePrice, _Digits) +
+              " | " + string(MaxEntryLevels - m_currentLevel) + " slots available | Exit levels reset");
 }
 
 //+------------------------------------------------------------------+
@@ -302,13 +332,13 @@ bool CPrimaryTradingSystem::UpdatePrimaryDirection()
 
 // Get current primary signal from completed bar (position 1)
     if(!g_indicatorManager.GetPrimarySignal(primaryMidline, primaryColor)) {
-        LOG_DEBUG("Primary Direction: Failed to read indicator signal - maintaining last direction");
+        LOG_DEBUG("Direction: Failed to read indicator signal - maintaining last direction");
         return false; // Maintain last known direction on read failure
     }
 
 // Validate color index (robust edge case handling)
     if(primaryColor != 0 && primaryColor != 1) {
-        LOG_DEBUG("Primary Direction: Invalid color index (" + string(primaryColor) +
+        LOG_DEBUG("Direction: Invalid color index (" + string(primaryColor) +
                   ") - maintaining last direction");
         return false; // Maintain last known direction on invalid data
     }
@@ -320,19 +350,14 @@ bool CPrimaryTradingSystem::UpdatePrimaryDirection()
     bool directionChanged = (m_lastDirection != 0 && m_lastDirection != newDirection);
 
     if(directionChanged) {
-        LOG_DEBUG("=== PRIMARY DIRECTION CHANGE DETECTED ===");
-        LOG_DEBUG("Previous Direction: " + (m_lastDirection == 1 ? "LONG" : "SHORT"));
-        LOG_DEBUG("New Direction: " + (newDirection == 1 ? "LONG" : "SHORT"));
-        LOG_DEBUG("Midline Value: " + DoubleToString(primaryMidline, _Digits));
+        LOG_DEBUG("Direction change: " + (m_lastDirection == 1 ? "LONG" : "SHORT") + " to " + (newDirection == 1 ? "LONG" : "SHORT") +
+                  " | Midline: " + DoubleToString(primaryMidline, _Digits));
 
         // Handle existing positions when direction changes
         if(g_tradeExecutor.IsPrimaryPositionOpen()) {
-            LOG_DEBUG("Primary Direction: Existing positions detected - continuing Martingale management");
-            LOG_DEBUG("Primary Direction: Exit levels remain active for existing positions");
+            LOG_DEBUG("Existing position detected - continuing Martingale management, exit levels remain active");
             // Note: We do NOT reset exit levels here - they continue for existing positions
         }
-
-        LOG_DEBUG("Primary Direction: Updated for future entries");
 
         // Properly maintain state transition
         m_lastDirection = m_direction;  // Store current as previous
@@ -343,14 +368,11 @@ bool CPrimaryTradingSystem::UpdatePrimaryDirection()
         m_direction = newDirection;
     }
 
-// Primary direction status now included in consolidated STATUS UPDATE - remove individual logging
-// This information is captured in the main OnTick() consolidated status update every 5 minutes
-
     return directionChanged;
 }
 
 //+------------------------------------------------------------------+
-//| Enhanced ShouldOpenPosition with intra-bar MOD detection        |
+//| Enhanced with crossing-based MOD detection   |
 //+------------------------------------------------------------------+
 bool CPrimaryTradingSystem::ShouldOpenPosition(int signalDirection)
 {
@@ -365,29 +387,14 @@ bool CPrimaryTradingSystem::ShouldOpenPosition(int signalDirection)
     }
 
     // Get current real-time price for intra-bar execution
-    double currentPrice = (signalDirection == 1) ?
-                          SymbolInfoDouble(_Symbol, SYMBOL_ASK) :
-                          SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double currentPrice = iClose(_Symbol, _Period, 0);
 
-    // Get current MOD level
-    double currentMOD = 0.0;
-    // Note: In the actual implementation, this should get MOD from indicator manager
-    // For now, we'll rely on the MOD value passed from ProcessPrimarySystem
-
-    // Check entry conditions using intra-bar detection
-    bool modPullbackDetected = DetectMODPullback(currentPrice, m_lastMODLevel);
-    bool readyForEntry = IsReadyForInitialEntry(currentPrice, m_lastMODLevel);
-
-    // Entry decision based on pullback or immediate MOD touch
-    bool shouldEnter = modPullbackDetected || readyForEntry;
+    // Check if MOD crossing detected - this is sufficient for entry decision
+    bool shouldEnter = DetectMODPullback(currentPrice, m_lastMODLevel);
 
     if(shouldEnter) {
-        LOG_DEBUG("=== ENTRY CONDITIONS SATISFIED ===");
-        LOG_DEBUG("Signal Direction: " + (signalDirection == 1 ? "LONG" : "SHORT"));
-        LOG_DEBUG("Entry Type: " + (modPullbackDetected ? "MOD PULLBACK" : "MOD TOUCH"));
-        LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-        LOG_DEBUG("MOD Level: " + DoubleToString(m_lastMODLevel, _Digits));
-        LOG_DEBUG("=== READY FOR POSITION OPENING ===");
+        LOG_DEBUG("Entry conditions satisfied: " + (signalDirection == 1 ? "LONG" : "SHORT") +
+                  " | Price: " + DoubleToString(currentPrice, _Digits) + " | MOD: " + DoubleToString(m_lastMODLevel, _Digits));
     }
 
     return shouldEnter;
@@ -428,31 +435,24 @@ bool CPrimaryTradingSystem::ShouldAddToPosition(double currentPrice, double atrV
                              m_direction
                          );
 
-    if(shouldTrigger) {
-        LOG_DEBUG("=== MARTINGALE ADDITION TRIGGERED ===");
-        LOG_DEBUG("Current Level: " + string(m_currentLevel) + " → " + string(m_currentLevel + 1));
-        LOG_DEBUG("MOD Reference: " + DoubleToString(modReference, _Digits));
-        LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-        LOG_DEBUG("Direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
-    }
-
     return shouldTrigger;
 }
 
 //+------------------------------------------------------------------+
 //| Enhanced exit position check with proper crossover detection    |
 //+------------------------------------------------------------------+
-bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrValue, double previousPrice)
+ENUM_EXIT_TYPE CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrValue, double previousPrice)
 {
+    // Validate inputs
     if(m_averageEntryPrice <= 0.0 || atrValue <= 0.0 || m_currentLevel <= 0) {
-        return false;
+        return EXIT_NONE;
     }
 
-    // Check initial 50% profit target first (if applicable)
+    // Check initial 50% profit target first (highest priority)
     if(m_hasInitialPosition && !m_initialProfitTargetReached && m_initialLotRemainingVolume > 0.0) {
         if(ShouldTriggerInitial50PercentExit(currentPrice, previousPrice)) {
-            LOG_DEBUG("=== INITIAL 50% EXIT TRIGGERED ===");
-            return true;
+            LOG_DEBUG("Exit condition detected: INITIAL_50_PERCENT");
+            return EXIT_INITIAL_50_PERCENT;
         }
     }
 
@@ -470,8 +470,11 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
         exitLevel1Price = m_averageEntryPrice - (ExitLevel1_ATR * atrValue);
         exitLevel2Price = m_averageEntryPrice - (ExitLevel2_ATR * atrValue);
     }
+    else {
+        return EXIT_NONE; // Invalid direction
+    }
 
-    // Check for exit level 1 trigger (crossover detection)
+    // Check for ATR exit level 1 trigger (crossover detection)
     if(!m_exitLevel1Executed) {
         bool level1Triggered = false;
 
@@ -483,16 +486,13 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
         }
 
         if(level1Triggered) {
-            LOG_DEBUG("=== ATR EXIT LEVEL 1 TRIGGERED (AEP-BASED) ===");
-            LOG_DEBUG("AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
-            LOG_DEBUG("Exit Level 1 (" + DoubleToString(ExitLevel1_ATR, 1) + " ATR): " + DoubleToString(exitLevel1Price, _Digits));
-            LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-            LOG_DEBUG("Exit Percentage: " + DoubleToString(ExitLevel1_Percentage, 1) + "%");
-            return true;
+            LOG_DEBUG("Exit condition detected: ATR_LEVEL_1 | Price: " + DoubleToString(currentPrice, _Digits) +
+                      " | Target: " + DoubleToString(exitLevel1Price, _Digits));
+            return EXIT_ATR_LEVEL_1;
         }
     }
 
-    // Check for exit level 2 trigger (crossover detection)
+    // Check for ATR exit level 2 trigger (crossover detection)
     if(!m_exitLevel2Executed) {
         bool level2Triggered = false;
 
@@ -504,22 +504,20 @@ bool CPrimaryTradingSystem::ShouldExitPosition(double currentPrice, double atrVa
         }
 
         if(level2Triggered) {
-            LOG_DEBUG("=== ATR EXIT LEVEL 2 TRIGGERED (AEP-BASED) ===");
-            LOG_DEBUG("AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
-            LOG_DEBUG("Exit Level 2 (" + DoubleToString(ExitLevel2_ATR, 1) + " ATR): " + DoubleToString(exitLevel2Price, _Digits));
-            LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-            LOG_DEBUG("Exit Percentage: " + DoubleToString(ExitLevel2_Percentage, 1) + "%");
-            return true;
+            LOG_DEBUG("Exit condition detected: ATR_LEVEL_2 | Price: " + DoubleToString(currentPrice, _Digits) +
+                      " | Target: " + DoubleToString(exitLevel2Price, _Digits));
+            return EXIT_ATR_LEVEL_2;
         }
     }
 
-    return false;
+    // No exit conditions met
+    return EXIT_NONE;
 }
 
 //+------------------------------------------------------------------+
 //| Recover position state from existing open positions             |
 //+------------------------------------------------------------------+
-bool CPrimaryTradingSystem::RecoverPositionState()
+bool CPrimaryTradingSystem::EstimatePositionStateFromTrades()
 {
     LOG_DEBUG("=== POSITION STATE RECOVERY ===");
 
@@ -632,9 +630,6 @@ void CPrimaryTradingSystem::UpdateAveragePrice(double price, double lots)
         }
 
         ResetExitLevels();
-        LOG_DEBUG("Primary System: INITIAL position created - Size: " + DoubleToString(lots, 2) +
-                  " | Price: " + DoubleToString(price, _Digits) +
-                  " | MOD Reference: " + DoubleToString(m_modReferencePrice, _Digits));
     }
     else {
         // Subsequent positions - these are Martingale additions
@@ -651,118 +646,63 @@ void CPrimaryTradingSystem::UpdateAveragePrice(double price, double lots)
 }
 
 //+------------------------------------------------------------------+
-//| Detect MOD pullback for entry - Intra-bar implementation        |
+//| Detect MOD crossing for entry - Enhanced crossing detection     |
 //+------------------------------------------------------------------+
 bool CPrimaryTradingSystem::DetectMODPullback(double currentPrice, double currentMOD)
 {
-    if(currentMOD <= 0.0) {
+    // Validate inputs
+    if(currentPrice <= 0.0 || currentMOD <= 0.0) {
+        LOG_DEBUG("Primary Entry: Invalid price or MOD values for crossing detection");
         return false;
     }
 
-    // Calculate tolerance based on ATR (configurable precision)
-    double tolerance = 0.0001; // Default minimal tolerance, can be enhanced with ATR-based calculation
+    // Special case: Reset static variables when called with invalid parameters
+    if(currentPrice < 0.0 || currentMOD < 0.0) {
+        static double previousPrice = -1.0;
+        previousPrice = -1.0; // Reset static variable
+        LOG_DEBUG("MOD Crossing Detection: Static variables reset");
+        return false;
+    }
 
-    // Check if price is currently at MOD level (within tolerance)
-    bool atMODLevel = (MathAbs(currentPrice - currentMOD) <= tolerance);
+    // RATIONALE: MOD Crossing Detection Strategy
+    // We detect when price crosses the MOD level from either direction (above or below).
+    // This approach triggers immediate entry opportunities without waiting for complex
+    // "move away then return" patterns. The crossing detection is direction-agnostic:
+    // - Any crossing of MOD level indicates potential entry readiness
+    // - Signal direction (long/short) is determined separately by Midline color
+    // - Entry execution validates proximity to MOD using tolerance for practical execution
+    // This ensures faster response to MOD pullback opportunities while maintaining precision.
 
-    // Track price movement to detect pullback pattern
-    static double s_previousPrice = 0.0;
-    static double s_previousMOD = 0.0;
-    static bool s_awayFromMOD = false;
+    // Static variable to track previous price for crossing detection
+    static double previousPrice = -1.0;
 
     // Initialize on first call
-    if(s_previousPrice == 0.0) {
-        s_previousPrice = currentPrice;
-        s_previousMOD = currentMOD;
-        LOG_DEBUG("MOD Pullback Detection: Initialized tracking");
+    if(previousPrice == -1.0) {
+        previousPrice = currentPrice;
+        LOG_DEBUG("Primary Entry: Initializing MOD crossing detection - MOD: " +
+                  DoubleToString(currentMOD, _Digits) + " | Price: " + DoubleToString(currentPrice, _Digits));
         return false;
     }
 
-    // Detect if MOD level has changed significantly (new MOD reference)
-    double modChange = MathAbs(currentMOD - s_previousMOD);
-    if(modChange > tolerance * 10) { // Significant MOD change
-        LOG_DEBUG("MOD Pullback Detection: MOD level changed significantly - Reset tracking");
-        s_awayFromMOD = false; // Reset away status for new MOD level
+    // Detect crossing from above: previousPrice > MOD && currentPrice <= MOD
+    bool crossedFromAbove = (previousPrice > currentMOD && currentPrice <= currentMOD);
+
+    // Detect crossing from below: previousPrice < MOD && currentPrice >= MOD
+    bool crossedFromBelow = (previousPrice < currentMOD && currentPrice >= currentMOD);
+
+    // Any crossing triggers entry readiness
+    bool crossingDetected = (crossedFromAbove || crossedFromBelow);
+
+    if(crossingDetected) {
+        LOG_DEBUG("MOD crossing detected: " + (crossedFromAbove ? "FROM ABOVE" : "FROM BELOW") +
+                  " | Price: " + DoubleToString(previousPrice, _Digits) + " > " + DoubleToString(currentPrice, _Digits) +
+                  " | MOD: " + DoubleToString(currentMOD, _Digits));
     }
 
-    // Track if price has moved away from MOD (establishes pullback potential)
-    if(!s_awayFromMOD) {
-        double distanceFromMOD = MathAbs(currentPrice - currentMOD);
-        double significantDistance = tolerance * 5; // Must move at least 5x tolerance away
+    // Update previous price for next iteration
+    previousPrice = currentPrice;
 
-        if(distanceFromMOD > significantDistance) {
-            s_awayFromMOD = true;
-            LOG_DEBUG("MOD Pullback Detection: Price moved away from MOD - Distance: " +
-                      DoubleToString(distanceFromMOD, _Digits));
-        }
-    }
-
-    // Detect pullback: price was away and now returns to MOD level
-    bool pullbackDetected = s_awayFromMOD && atMODLevel;
-
-    if(pullbackDetected) {
-        LOG_DEBUG("=== MOD PULLBACK DETECTED ===");
-        LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-        LOG_DEBUG("MOD Level: " + DoubleToString(currentMOD, _Digits));
-        LOG_DEBUG("Distance: " + DoubleToString(MathAbs(currentPrice - currentMOD), _Digits));
-        LOG_DEBUG("Tolerance: " + DoubleToString(tolerance, _Digits));
-        LOG_DEBUG("=== PULLBACK CONFIRMED ===");
-
-        // Reset tracking after detection
-        s_awayFromMOD = false;
-    }
-
-    // Update tracking variables
-    s_previousPrice = currentPrice;
-    s_previousMOD = currentMOD;
-
-    return pullbackDetected;
-}
-
-//+------------------------------------------------------------------+
-//| Check if ready for initial entry - Intra-bar implementation     |
-//+------------------------------------------------------------------+
-bool CPrimaryTradingSystem::IsReadyForInitialEntry(double currentPrice, double currentMOD)
-{
-    // Don't enter if we already have a position
-    if(m_direction != 0 && m_currentLevel > 0) {
-        return false;
-    }
-
-    // Validate inputs
-    if(currentMOD <= 0.0 || currentPrice <= 0.0) {
-        return false;
-    }
-
-    // Check if price is at MOD level (intra-bar detection)
-    double tolerance = 0.0001; // Minimal tolerance for precise MOD touch detection
-    bool atMODLevel = (MathAbs(currentPrice - currentMOD) <= tolerance);
-
-    if(!atMODLevel) {
-        return false;
-    }
-
-    // Additional entry readiness checks can be added here
-    // For example: trend confirmation, volatility filters, etc.
-
-    LOG_DEBUG("=== INITIAL ENTRY READINESS CHECK ===");
-    LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-    LOG_DEBUG("MOD Level: " + DoubleToString(currentMOD, _Digits));
-    LOG_DEBUG("Distance: " + DoubleToString(MathAbs(currentPrice - currentMOD), _Digits));
-    LOG_DEBUG("At MOD Level: " + (atMODLevel ? "YES" : "NO"));
-    LOG_DEBUG("Ready for Entry: " + (atMODLevel ? "YES" : "NO"));
-
-    return atMODLevel;
-}
-
-//+------------------------------------------------------------------+
-//| Reset pullback tracking                                         |
-//+------------------------------------------------------------------+
-void CPrimaryTradingSystem::ResetPullbackTracking()
-{
-    m_readyForPullbackEntry = false;
-    m_awayFromMOD = false;
-    LOG_DEBUG("Primary System: MOD pullback tracking reset");
+    return crossingDetected;
 }
 
 //+------------------------------------------------------------------+
@@ -863,17 +803,17 @@ double CPrimaryTradingSystem::Calculate50PercentProfitTarget() const
     if(m_direction == 1) {
         // Long position: profit target above AEP
         profitTargetPrice = m_averageEntryPrice + (1.0 * atrValue);
+        LOG_DEBUG("50% profit target: " + DoubleToString(profitTargetPrice, _Digits) +
+                  " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
+                  " | ATR: " + DoubleToString(atrValue, _Digits) + " | LONG");
     }
     else if(m_direction == -1) {
         // Short position: profit target below AEP
         profitTargetPrice = m_averageEntryPrice - (1.0 * atrValue);
+        LOG_DEBUG("50% profit target: " + DoubleToString(profitTargetPrice, _Digits) +
+                  " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
+                  " | ATR: " + DoubleToString(atrValue, _Digits) + " | SHORT");
     }
-
-    LOG_DEBUG("=== 50% PROFIT TARGET CALCULATION (AEP-BASED) ===");
-    LOG_DEBUG("Average Entry Price (AEP): " + DoubleToString(m_averageEntryPrice, _Digits));
-    LOG_DEBUG("ATR Value: " + DoubleToString(atrValue, _Digits));
-    LOG_DEBUG("Direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
-    LOG_DEBUG("50% Profit Target Price: " + DoubleToString(profitTargetPrice, _Digits));
 
     return profitTargetPrice;
 }
@@ -908,13 +848,10 @@ bool CPrimaryTradingSystem::ShouldTriggerInitial50PercentExit(double currentPric
     }
 
     if(targetReached) {
-        LOG_DEBUG("=== INITIAL 50% EXIT TRIGGER (AEP-BASED) ===");
-        LOG_DEBUG("AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
-        LOG_DEBUG("Profit Target: " + DoubleToString(profitTargetPrice, _Digits));
-        LOG_DEBUG("Current Price: " + DoubleToString(currentPrice, _Digits));
-        LOG_DEBUG("Previous Price: " + DoubleToString(previousPrice, _Digits));
-        LOG_DEBUG("Direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
-        LOG_DEBUG("=== 50% EXIT CONFIRMED ===");
+        LOG_DEBUG("Initial 50% exit triggered: " + (m_direction == 1 ? "LONG" : "SHORT") +
+                  " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
+                  " | Target: " + DoubleToString(profitTargetPrice, _Digits) +
+                  " | Price: " + DoubleToString(previousPrice, _Digits) + " > " + DoubleToString(currentPrice, _Digits));
     }
 
     return targetReached;
@@ -931,17 +868,7 @@ void CPrimaryTradingSystem::UpdateRemainingVolumeAfterPartialClosure(double rema
     // After reclassification, the remaining volume becomes the new "initial" size
     m_initialLotSize = remainingVolume;
 
-    LOG_DEBUG("Volume updated after partial closure:");
-    LOG_DEBUG("  Remaining Volume: " + DoubleToString(remainingVolume, 2));
-    LOG_DEBUG("  New Initial Lot Size: " + DoubleToString(m_initialLotSize, 2));
-}
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-void CPrimaryTradingSystem::SetInitialProfitTargetReached(bool reached)
-{
-    m_initialProfitTargetReached = reached;
+    LOG_DEBUG("Remaining volume reclassified as new initial lot size: " + DoubleToString(remainingVolume, 2) + " lots");
 }
 
 //+------------------------------------------------------------------+

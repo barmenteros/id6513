@@ -74,7 +74,7 @@ double CPositionSizer::CalculateNextLevelLotSize(int currentLevel, double atrVal
 {
 // Validate we can add another level
     if(CMartingaleManager::IsMaxLevelReached(currentLevel)) {
-        LOG_DEBUG("Position Sizer: Cannot calculate - at maximum levels (" + string(currentLevel) + ")");
+        LOG_DEBUG("Cannot calculate - at maximum levels (" + string(currentLevel) + ")");
         return 0.0;
     }
 

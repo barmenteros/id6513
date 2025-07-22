@@ -101,7 +101,7 @@ bool CIndicatorManager::Init()
     }
 
     LOG_DEBUG("SUCCESS: Midline indicator initialized successfully");
-    LOG_DEBUG("Primary Handle: " + string(m_primaryHandle));
+    //LOG_DEBUG("Primary Handle: " + string(m_primaryHandle));
 
     return true;
 }
@@ -148,9 +148,9 @@ bool CIndicatorManager::GetPrimarySignal(double &midlineValue, int &colorIndex)
 
     // Debug output for verification (print only when bar changes)
     static datetime lastPrimaryBarTime = 0;
-    datetime currentBarTime = iTime(_Symbol, _Period, m_barPosition);
+    datetime currentBarTime = iTime(_Symbol, _Period, 0);
     if(currentBarTime != lastPrimaryBarTime) {
-        LOG_DEBUG("PRIMARY Signal - Bar: " + TimeToString(currentBarTime) +
+        LOG_DEBUG("Signal - Bar: " + TimeToString(currentBarTime) +
                   " | Midline: " + DoubleToString(midlineValue, _Digits) +
                   " | Color: " + (colorIndex == 0 ? "BLUE (Long)" : "MAGENTA (Short)"));
         lastPrimaryBarTime = currentBarTime;

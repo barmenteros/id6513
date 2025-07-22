@@ -47,6 +47,10 @@ public:
     {
         return m_primaryTrade.ResultRetcodeDescription();
     }
+    double GetLastExecutionPrice()
+    {
+        return m_primaryTrade.ResultPrice();
+    }
 };
 
 //+------------------------------------------------------------------+
@@ -294,13 +298,14 @@ double CTradeExecutor::GetPrimaryPositionProfit()
     for(int i = 0; i < PositionsTotal(); i++) {
         if(PositionGetSymbol(i) == _Symbol) {
             if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
-                totalProfit += PositionGetDouble(POSITION_PROFIT);
+                totalProfit += PositionGetDouble(POSITION_PROFIT);     // Floating P&L
+                totalProfit += PositionGetDouble(POSITION_SWAP);       // Rollover costs
+//                totalProfit += PositionGetDouble(POSITION_COMMISSION); // Trading costs
             }
         }
     }
     return totalProfit;
 }
-
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
