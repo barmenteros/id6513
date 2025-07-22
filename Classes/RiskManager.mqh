@@ -74,7 +74,7 @@ void CRiskManager::UpdateProfitLoss()
     double profitChange = MathAbs(currentCombinedProfit - lastLoggedProfit);
 
     if(profitChange > 10.0 || (currentTime - lastPnLUpdateLog >= 300)) {
-        LOG_DEBUG("P&L update: Combined: $" + DoubleToString(currentCombinedProfit, 2) + 
+        LOG_DEBUG("P&L update: Combined: $" + DoubleToString(currentCombinedProfit, 2) +
                   (profitChange > 10.0 ? " | Change: $" + DoubleToString(profitChange, 2) : ""));
         lastPnLUpdateLog = currentTime;
         lastLoggedProfit = currentCombinedProfit;
@@ -179,10 +179,10 @@ bool CRiskManager::ShouldRestartSystem()
     datetime currentTime = TimeCurrent();
 
     if(shouldRestart && (currentTime - lastRestartConditionLog >= 300)) {
-        LOG_DEBUG("System restart conditions met: P&L reset: " + (combinedPnLMet ? "YES" : "NO") + 
-                  " | Max level: " + (atMaxLevel ? "YES" : "NO") + 
-                  " | Profit threshold: " + (profitThresholdMet ? "YES" : "NO") + 
-                  " | Combined: $" + DoubleToString(combinedProfit, 2) + 
+        LOG_DEBUG("System restart conditions met: P&L reset: " + (combinedPnLMet ? "YES" : "NO") +
+                  " | Max level: " + (atMaxLevel ? "YES" : "NO") +
+                  " | Profit threshold: " + (profitThresholdMet ? "YES" : "NO") +
+                  " | Combined: $" + DoubleToString(combinedProfit, 2) +
                   " | Reset available after complete closure");
         lastRestartConditionLog = currentTime;
     }
@@ -209,9 +209,9 @@ bool CRiskManager::CheckCombinedPnLResetCondition()
     datetime currentTime = TimeCurrent();
 
     if(currentTime - lastResetAnalysisLog >= 120) {
-        LOG_DEBUG("Reset analysis: Drawdown: $" + DoubleToString(primaryDrawdown, 2) + 
-                  " | Profit: $" + DoubleToString(combinedProfit, 2) + 
-                  " | Threshold: $" + DoubleToString(MinimumProfitThreshold, 2) + 
+        LOG_DEBUG("Reset analysis: Drawdown: $" + DoubleToString(primaryDrawdown, 2) +
+                  " | Profit: $" + DoubleToString(combinedProfit, 2) +
+                  " | Threshold: $" + DoubleToString(MinimumProfitThreshold, 2) +
                   " | Status: " + (drawdownOffsetMet && thresholdMet ? "SATISFIED" : "NOT SATISFIED"));
         lastResetAnalysisLog = currentTime;
     }
@@ -274,8 +274,8 @@ bool CRiskManager::CheckDrawdownStopLoss()
         m_drawdownAtMaxMartingale = currentPrimaryPnL;
         double additionalDrawdown = MathAbs(m_drawdownAtMaxMartingale) * (DrawdownStopLossPercentage / 100.0);
         double triggerLevel = m_drawdownAtMaxMartingale - additionalDrawdown;
-        
-        LOG_DEBUG("Drawdown stop loss activated: Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
+
+        LOG_DEBUG("Drawdown stop loss activated: Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
                   " | Stop: " + DoubleToString(DrawdownStopLossPercentage, 2) + "% | Trigger: $" + DoubleToString(triggerLevel, 2));
         return false;
     }
@@ -297,16 +297,16 @@ bool CRiskManager::CheckDrawdownStopLoss()
     static datetime lastMonitoringLog = 0;
     datetime currentTime = TimeCurrent();
     if(currentTime - lastMonitoringLog >= 30) {
-        LOG_DEBUG("Drawdown monitoring: Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
-                  " | Current: $" + DoubleToString(currentPrimaryPnL, 2) + 
-                  " | Trigger: $" + DoubleToString(stopLossTriggerLevel, 2) + 
+        LOG_DEBUG("Drawdown monitoring: Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
+                  " | Current: $" + DoubleToString(currentPrimaryPnL, 2) +
+                  " | Trigger: $" + DoubleToString(stopLossTriggerLevel, 2) +
                   " | Status: " + (stopLossTriggered ? "TRIGGERED" : "MONITORING"));
         lastMonitoringLog = currentTime;
     }
 
     if(stopLossTriggered) {
-        LOG_DEBUG("EMERGENCY: Drawdown stop loss triggered | Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
-                  " | Current: $" + DoubleToString(currentPrimaryPnL, 2) + 
+        LOG_DEBUG("EMERGENCY: Drawdown stop loss triggered | Reference: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
+                  " | Current: $" + DoubleToString(currentPrimaryPnL, 2) +
                   " | Breach: $" + DoubleToString(currentPrimaryPnL - stopLossTriggerLevel, 2));
         m_drawdownAtMaxMartingale = 0.0;
     }
@@ -322,7 +322,7 @@ void CRiskManager::SetDrawdownAtMaxMartingale(double drawdown)
     if(drawdown < 0.0 && g_primarySystem.GetCurrentLevel() == MaxEntryLevels) {
         if(m_drawdownAtMaxMartingale == 0.0) {
             m_drawdownAtMaxMartingale = drawdown;
-            LOG_DEBUG("Drawdown reference set: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) + 
+            LOG_DEBUG("Drawdown reference set: $" + DoubleToString(m_drawdownAtMaxMartingale, 2) +
                       " | Stop loss: " + DoubleToString(DrawdownStopLossPercentage, 2) + "%");
         }
     }
