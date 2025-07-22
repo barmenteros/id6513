@@ -28,8 +28,6 @@ public:
         m_drawdownAtMaxMartingale(0) {}
 
     // Core risk management methods
-    bool ShouldRestartSystem();
-    void UpdateProfitLoss();
     bool CheckCombinedPnLResetCondition();
     bool CheckDrawdownStopLoss(); // NEW: Drawdown stop loss check
     double CalculatePrimaryDrawdown();
@@ -57,29 +55,6 @@ public:
         m_systemStartTime = startTime;
     }
 };
-
-//+------------------------------------------------------------------+
-//| Update profit/loss tracking with minimal logging               |
-//+------------------------------------------------------------------+
-void CRiskManager::UpdateProfitLoss()
-{
-    // This method is called every second via timer
-    // Only log significant changes or periodically for status
-
-    static datetime lastPnLUpdateLog = 0;
-    static double lastLoggedProfit = 0.0;
-    datetime currentTime = TimeCurrent();
-
-    double currentCombinedProfit = CalculateCombinedProfit();
-    double profitChange = MathAbs(currentCombinedProfit - lastLoggedProfit);
-
-    if(profitChange > 10.0 || (currentTime - lastPnLUpdateLog >= 300)) {
-        LOG_DEBUG("P&L update: Combined: $" + DoubleToString(currentCombinedProfit, 2) +
-                  (profitChange > 10.0 ? " | Change: $" + DoubleToString(profitChange, 2) : ""));
-        lastPnLUpdateLog = currentTime;
-        lastLoggedProfit = currentCombinedProfit;
-    }
-}
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -162,32 +137,6 @@ void CRiskManager::ResetCounters()
               "Primary profits: $" + DoubleToString(prevPrimaryProfit, 2) + ">$0 | " +
               "Volume: " + DoubleToString(prevVolume, 2) + ">0 | " +
               "Max drawdown: $" + DoubleToString(prevMaxDrawdown, 2) + ">$0");
-}
-
-//+------------------------------------------------------------------+
-//| Check if system should restart (enhanced for complete closure)  |
-//+------------------------------------------------------------------+
-bool CRiskManager::ShouldRestartSystem()
-{
-    bool combinedPnLMet = CheckCombinedPnLResetCondition();
-    bool atMaxLevel = (g_primarySystem.GetCurrentLevel() >= MaxEntryLevels);
-    double combinedProfit = CalculateCombinedProfit();
-    bool profitThresholdMet = (combinedProfit >= MinimumProfitThreshold);
-    bool shouldRestart = combinedPnLMet && atMaxLevel && profitThresholdMet;
-
-    static datetime lastRestartConditionLog = 0;
-    datetime currentTime = TimeCurrent();
-
-    if(shouldRestart && (currentTime - lastRestartConditionLog >= 300)) {
-        LOG_DEBUG("System restart conditions met: P&L reset: " + (combinedPnLMet ? "YES" : "NO") +
-                  " | Max level: " + (atMaxLevel ? "YES" : "NO") +
-                  " | Profit threshold: " + (profitThresholdMet ? "YES" : "NO") +
-                  " | Combined: $" + DoubleToString(combinedProfit, 2) +
-                  " | Reset available after complete closure");
-        lastRestartConditionLog = currentTime;
-    }
-
-    return shouldRestart;
 }
 
 //+------------------------------------------------------------------+
