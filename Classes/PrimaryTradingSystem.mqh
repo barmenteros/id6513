@@ -520,10 +520,9 @@ bool CPrimaryTradingSystem::EstimatePositionStateFromTrades()
     double currentProfit = g_tradeExecutor.GetPrimaryPositionProfit();
     ENUM_POSITION_TYPE positionType = g_tradeExecutor.GetPrimaryPositionType();
 
-    LOG_DEBUG("Existing position found:");
-    LOG_DEBUG("  Volume: " + DoubleToString(totalVolume, 2));
-    LOG_DEBUG("  Type: " + (positionType == POSITION_TYPE_BUY ? "BUY" : "SELL"));
-    LOG_DEBUG("  Profit: $" + DoubleToString(currentProfit, 2));
+    LOG_DEBUG("Existing position found: " + DoubleToString(totalVolume, 2) + " lots " +
+              (positionType == POSITION_TYPE_BUY ? "BUY" : "SELL") +
+              " | Profit: $" + DoubleToString(currentProfit, 2));
 
     // Set direction based on position type
     m_direction = (positionType == POSITION_TYPE_BUY) ? 1 : -1;
@@ -581,12 +580,11 @@ bool CPrimaryTradingSystem::EstimatePositionStateFromTrades()
         m_lowestEntryPrice = 0.0;
     }
 
-    LOG_DEBUG("Recovery complete:");
-    LOG_DEBUG("  Direction: " + (m_direction == 1 ? "LONG" : "SHORT"));
-    LOG_DEBUG("  Estimated Level: " + string(m_currentLevel));
-    LOG_DEBUG("  Estimated AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
-    LOG_DEBUG("  MOD Reference: " + DoubleToString(m_modReferencePrice, _Digits));
-    LOG_DEBUG("  Initial Lot Remaining: " + DoubleToString(m_initialLotRemainingVolume, 2));
+    LOG_DEBUG("Recovery complete: " + (m_direction == 1 ? "LONG" : "SHORT") +
+              " | Level " + string(m_currentLevel) +
+              " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
+              " | MOD: " + DoubleToString(m_modReferencePrice, _Digits) +
+              " | Remaining: " + DoubleToString(m_initialLotRemainingVolume, 2) + " lots");
 
     return true;
 }
@@ -721,12 +719,10 @@ double CPrimaryTradingSystem::CalculateInitialLotProfit(double currentPrice) con
     double profitPerLot = (priceDifference / tickSize) * tickValue;
     double totalProfit = profitPerLot * m_initialLotRemainingVolume;
 
-    LOG_DEBUG("Initial Lot Profit Calculation (AEP-Based):");
-    LOG_DEBUG("  AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
-    LOG_DEBUG("  Current Price: " + DoubleToString(currentPrice, _Digits));
-    LOG_DEBUG("  Price Difference: " + DoubleToString(priceDifference, _Digits));
-    LOG_DEBUG("  Remaining Volume: " + DoubleToString(m_initialLotRemainingVolume, 2));
-    LOG_DEBUG("  Calculated Profit: $" + DoubleToString(totalProfit, 2));
+    LOG_DEBUG("Initial lot profit: AEP " + DoubleToString(m_averageEntryPrice, _Digits) +
+              " | Price " + DoubleToString(currentPrice, _Digits) +
+              " | Volume " + DoubleToString(m_initialLotRemainingVolume, 2) +
+              " lots | Profit $" + DoubleToString(totalProfit, 2));
 
     return totalProfit;
 }
@@ -759,11 +755,10 @@ double CPrimaryTradingSystem::CalculateInitialLotClosureProfit(double volumeToBe
     double profitPerLot = (priceDifference / tickSize) * tickValue;
     double totalProfit = profitPerLot * volumeToBeClosed;
 
-    LOG_DEBUG("Closure Profit Calculation (AEP-Based):");
-    LOG_DEBUG("  AEP: " + DoubleToString(m_averageEntryPrice, _Digits));
-    LOG_DEBUG("  Closure Price: " + DoubleToString(closurePrice, _Digits));
-    LOG_DEBUG("  Volume to Close: " + DoubleToString(volumeToBeClosed, 2));
-    LOG_DEBUG("  Expected Profit: $" + DoubleToString(totalProfit, 2));
+    LOG_DEBUG("Closure profit: AEP " + DoubleToString(m_averageEntryPrice, _Digits) +
+              " | Close " + DoubleToString(closurePrice, _Digits) +
+              " | Volume " + DoubleToString(volumeToBeClosed, 2) +
+              " lots | Expected $" + DoubleToString(totalProfit, 2));
 
     return totalProfit;
 }

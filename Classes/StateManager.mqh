@@ -285,14 +285,13 @@ bool CStateManager::ApplyLoadedState(CJAVal &json)
         g_primarySystem.SetExitLevel1Executed(exitLevel1Executed);
         g_primarySystem.SetExitLevel2Executed(exitLevel2Executed);
 
-        LOG_DEBUG("=== COMPLETE STATE RESTORATION ===");
-        LOG_DEBUG("Direction: " + (direction == 1 ? "LONG" : "SHORT"));
-        LOG_DEBUG("Current Level: " + string(currentLevel));
-        LOG_DEBUG("MOD Reference: " + DoubleToString(modReferencePrice, _Digits));
-        LOG_DEBUG("Average Entry Price: " + DoubleToString(averageEntryPrice, _Digits));
-        LOG_DEBUG("Initial Entry Price: " + DoubleToString(initialEntryPrice, _Digits));
-        LOG_DEBUG("Exit L1/L2: " + (exitLevel1Executed ? "DONE" : "PENDING") +
-                  "/" + (exitLevel2Executed ? "DONE" : "PENDING"));
+        LOG_DEBUG("State restored: " + (direction == 1 ? "LONG" : "SHORT") +
+                  " | Level " + string(currentLevel) +
+                  " | MOD: " + DoubleToString(modReferencePrice, _Digits) +
+                  " | AEP: " + DoubleToString(averageEntryPrice, _Digits) +
+                  " | Initial: " + DoubleToString(initialEntryPrice, _Digits) +
+                  " | Exit L1/L2: " + (exitLevel1Executed ? "DONE" : "PENDING") + "/" +
+                  (exitLevel2Executed ? "DONE" : "PENDING"));
     }
     else {
         LOG_DEBUG("State Recovery: No position to restore");

@@ -35,7 +35,6 @@ public:
     bool IsPrimaryPositionOpen();
     double GetPrimaryPositionVolume();
     double GetPrimaryPositionProfit();
-    int GetPrimaryPositionCount();
     ENUM_POSITION_TYPE GetPrimaryPositionType();
 
     // Access to CTrade error information
@@ -108,26 +107,18 @@ bool CTradeExecutor::ClosePrimaryPosition(double percentage)
 // Check if the calculated partial volume is too small (e.g., 0.005)
 // AND if the remaining total volume is at or very near the broker's minimum tradable lot (e.g., 0.01)
     if(normalizedVolume < brokerMinLot && MathAbs(totalVolume - brokerMinLot) < tolerance) {
-        LOG_DEBUG("=== INTELLIGENT CLOSURE TRIGGERED ===");
-        LOG_DEBUG("Trade Executor: Calculated partial volume (" + DoubleToString(volumeToClose, 4) +
-                  ") normalized to (" + DoubleToString(normalizedVolume, 4) +
-                  ") is below broker minimum (" + DoubleToString(brokerMinLot, 4) + ")");
-        LOG_DEBUG("Remaining position (" + DoubleToString(totalVolume, 4) +
-                  ") is at broker's minimum lot size");
-        LOG_DEBUG("Strategy: Closing 100% of remaining position instead of untradable partial");
+        LOG_DEBUG("Intelligent closure triggered: Partial volume " + DoubleToString(volumeToClose, 4) +
+                  " below broker minimum " + DoubleToString(brokerMinLot, 4) +
+                  " - closing 100% of remaining " + DoubleToString(totalVolume, 4) + " lots");
 
         // Execute full closure of the remaining minimum position
         result = m_primaryTrade.PositionClose(_Symbol);
 
         if(result) {
-            LOG_DEBUG("=== INTELLIGENT CLOSURE SUCCESS ===");
-            LOG_DEBUG("Full closure executed successfully for minimum lot position");
-            LOG_DEBUG("This allows profit realization and triggers re-evaluation system");
+            LOG_DEBUG("Intelligent closure success: Full closure executed for minimum lot position - profit realized, triggers re-evaluation");
         }
         else {
-            LOG_DEBUG("=== INTELLIGENT CLOSURE FAILED ===");
-            LOG_DEBUG("Full closure of minimum lot failed - " + m_primaryTrade.ResultRetcodeDescription() +
-                      " | Return Code: " + string(m_primaryTrade.ResultRetcode()));
+            LOG_DEBUG("Intelligent closure failed: " + m_primaryTrade.ResultRetcodeDescription() + " (" + string(m_primaryTrade.ResultRetcode()) + ")");
         }
     }
 // --- END ENHANCED LOGIC ---
@@ -197,26 +188,18 @@ bool CTradeExecutor::ClosePrimaryPositionByVolume(double volumeToClose, const st
 // Check if the calculated partial volume is too small (e.g., 0.005)
 // AND if the remaining total volume is at or very near the broker's minimum tradable lot (e.g., 0.01)
     if(normalizedVolume < brokerMinLot && MathAbs(totalVolume - brokerMinLot) < tolerance) {
-        LOG_DEBUG("=== INTELLIGENT VOLUME CLOSURE TRIGGERED ===");
-        LOG_DEBUG("Trade Executor: Requested volume (" + DoubleToString(volumeToClose, 4) +
-                  ") normalized to (" + DoubleToString(normalizedVolume, 4) +
-                  ") is below broker minimum (" + DoubleToString(brokerMinLot, 4) + ")");
-        LOG_DEBUG("Remaining position (" + DoubleToString(totalVolume, 4) +
-                  ") is at broker's minimum lot size");
-        LOG_DEBUG("Strategy: Closing 100% of remaining position instead of untradable partial");
+        LOG_DEBUG("Intelligent volume closure triggered: Requested volume " + DoubleToString(volumeToClose, 4) +
+                  " below broker minimum " + DoubleToString(brokerMinLot, 4) +
+                  " - closing 100% of remaining " + DoubleToString(totalVolume, 4) + " lots");
 
         // Execute full closure of the remaining minimum position
         result = m_primaryTrade.PositionClose(_Symbol);
 
         if(result) {
-            LOG_DEBUG("=== INTELLIGENT VOLUME CLOSURE SUCCESS ===");
-            LOG_DEBUG("Full closure executed successfully for minimum lot position");
-            LOG_DEBUG("Comment: " + comment + " (adjusted to full closure)");
+            LOG_DEBUG("Intelligent volume closure success: Full closure executed for minimum lot position - " + comment + " (adjusted to full closure)");
         }
         else {
-            LOG_DEBUG("=== INTELLIGENT VOLUME CLOSURE FAILED ===");
-            LOG_DEBUG("Full closure of minimum lot failed - " + m_primaryTrade.ResultRetcodeDescription() +
-                      " | Return Code: " + string(m_primaryTrade.ResultRetcode()));
+            LOG_DEBUG("Intelligent volume closure failed: " + m_primaryTrade.ResultRetcodeDescription() + " (" + string(m_primaryTrade.ResultRetcode()) + ")");
         }
     }
 // --- END ENHANCED LOGIC ---
@@ -305,21 +288,6 @@ double CTradeExecutor::GetPrimaryPositionProfit()
         }
     }
     return totalProfit;
-}
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-int CTradeExecutor::GetPrimaryPositionCount()
-{
-    int count = 0;
-    for(int i = 0; i < PositionsTotal(); i++) {
-        if(PositionGetSymbol(i) == _Symbol) {
-            if(PositionGetInteger(POSITION_MAGIC) == MagicNumberPrimary) {
-                count++;
-            }
-        }
-    }
-    return count;
 }
 
 //+------------------------------------------------------------------+

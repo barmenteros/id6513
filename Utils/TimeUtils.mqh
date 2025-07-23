@@ -53,14 +53,12 @@ bool IsWithinTradingHours()
     static int lastLoggedHour = -1;
 
     if(currentHour != lastLoggedHour) {
-        LOG_DEBUG("=== TRADING TIME STATUS ===");
-        LOG_DEBUG("Current Time: " + TimeToString(currentTime, TIME_MINUTES));
-        LOG_DEBUG("Current Hour: " + string(currentHour) + " (Broker Time)");
-        LOG_DEBUG("Trading Window: " + string(TradingStartHour) + ":00 - " + string(TradingEndHour) + ":00");
-        LOG_DEBUG("Trading Allowed: " + (withinHours ? "YES" : "NO"));
-        LOG_DEBUG("Time Restrictions: " + (EnableTimeRestrictions ? "ENABLED" : "DISABLED"));
+        LOG_DEBUG("Trading time status: " + TimeToString(currentTime, TIME_MINUTES) +
+                  " | Window: " + string(TradingStartHour) + ":00-" + string(TradingEndHour) + ":00 | " + (withinHours ? "ALLOWED" : "BLOCKED") +
+                  " | Restrictions: " + (EnableTimeRestrictions ? "ENABLED" : "DISABLED"));
         lastLoggedHour = currentHour;
     }
 
     return withinHours;
 }
+//+------------------------------------------------------------------+
