@@ -783,20 +783,48 @@ double CPrimaryTradingSystem::Calculate50PercentProfitTarget() const
     // Calculate 50% profit target: AEP + 1.0 ATR for long, AEP - 1.0 ATR for short
     double profitTargetPrice = 0.0;
 
+    // Static variables to track previous values for change detection
+    static double previousProfitTarget = 0.0;
+    static double previousAEP = 0.0;
+    static double previousATR = 0.0;
+    static int previousDirection = 0;
+
     if(m_direction == 1) {
         // Long position: profit target above AEP
         profitTargetPrice = m_averageEntryPrice + (1.0 * atrValue);
-        LOG_DEBUG("50% profit target: " + DoubleToString(profitTargetPrice, _Digits) +
-                  " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
-                  " | ATR: " + DoubleToString(atrValue, _Digits) + " | LONG");
+
+        // Only log if any values have changed
+        if(profitTargetPrice != previousProfitTarget ||
+                m_averageEntryPrice != previousAEP ||
+                atrValue != previousATR ||
+                m_direction != previousDirection) {
+
+            LOG_DEBUG("50% profit target: " + DoubleToString(profitTargetPrice, _Digits) +
+                      " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
+                      " | ATR: " + DoubleToString(atrValue, _Digits) + " | LONG");
+        }
     }
     else if(m_direction == -1) {
         // Short position: profit target below AEP
         profitTargetPrice = m_averageEntryPrice - (1.0 * atrValue);
-        LOG_DEBUG("50% profit target: " + DoubleToString(profitTargetPrice, _Digits) +
-                  " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
-                  " | ATR: " + DoubleToString(atrValue, _Digits) + " | SHORT");
+
+        // Only log if any values have changed
+        if(profitTargetPrice != previousProfitTarget ||
+                m_averageEntryPrice != previousAEP ||
+                atrValue != previousATR ||
+                m_direction != previousDirection) {
+
+            LOG_DEBUG("50% profit target: " + DoubleToString(profitTargetPrice, _Digits) +
+                      " | AEP: " + DoubleToString(m_averageEntryPrice, _Digits) +
+                      " | ATR: " + DoubleToString(atrValue, _Digits) + " | SHORT");
+        }
     }
+
+    // Update previous values for next comparison
+    previousProfitTarget = profitTargetPrice;
+    previousAEP = m_averageEntryPrice;
+    previousATR = atrValue;
+    previousDirection = m_direction;
 
     return profitTargetPrice;
 }

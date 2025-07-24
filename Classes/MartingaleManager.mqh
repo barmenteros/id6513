@@ -103,11 +103,13 @@ double CMartingaleManager::CalculateNextEntryPrice(double modReferencePrice, dou
     }
 
     // Log calculation details
+/*
     LOG_DEBUG("Martingale calculation: Level " + string(currentLevel) + ">" + string(nextLevel) +
               " | MOD: " + DoubleToString(modReferencePrice, _Digits) +
               " | Entry: " + DoubleToString(entryPrice, _Digits) +
               " | Distance: " + DoubleToString(cumulativeDistance, _Digits) +
               " (" + DoubleToString(GetLevelSpacing(nextLevel), 1) + " ATR)");
+*/
 
     return entryPrice;
 }
